@@ -28,11 +28,11 @@ router.use(protect);
 // File management paths
 router.post('/upload', upload.single('file'), validate(uploadFileSchema), uploadFile);
 router.get('/', getFiles);
-router.get('/:id', getFile);
-router.put('/:id', validate(updateFileSchema), updateFile);
-router.delete('/:id', deleteFile);
 router.post('/move', validate(moveFileSchema), moveFile);
 router.post('/favorite', validate(favoriteFileSchema), favoriteFile);
 router.get('/download/:id', downloadFile);
+router.get('/:id', getFile);
+router.put('/:id', validate(updateFileSchema), updateFile);
+router.delete('/:id', deleteFile);
 
 module.exports = router;

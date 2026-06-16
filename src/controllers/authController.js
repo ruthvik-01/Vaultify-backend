@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
@@ -16,6 +17,24 @@ const generateToken = (userId, email) => {
 };
 
 /**
+ * Serialize user object for API responses (excludes sensitive fields)
+ */
+const serializeUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  profile_image: user.profile_image,
+  is_verified: user.is_verified,
+  storage_plan: user.storage_plan,
+  theme_color: user.theme_color,
+  dark_mode: user.dark_mode,
+  sidebar_color: user.sidebar_color,
+  accent_color: user.accent_color,
+  font_size: user.font_size,
+  created_at: user.created_at
+});
+
+/**
  * Register a new user
  */
 const register = async (req, res, next) => {
@@ -32,29 +51,27 @@ const register = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+
     // Insert user record into DB
     const user = await User.create({
       name,
       email,
-      password_hash: passwordHash
+      password_hash: passwordHash,
+      verification_token: verificationToken
     });
 
-    const userId = user.id;
-    const token = generateToken(userId, email);
+    const token = generateToken(user.id, email);
 
     // Log the user's initial login (auto-login upon successful registration)
-    await logActivity(userId, 'Login', { method: 'registration' }, req.ip);
+    await logActivity(user.id, 'Login', { method: 'registration' }, req.ip);
 
     res.status(201).json({
       status: 'success',
       token,
       data: {
-        user: {
-          id: userId,
-          name,
-          email,
-          profile_image: null
-        }
+        user: serializeUser(user)
       }
     });
   } catch (error) {
@@ -90,13 +107,180 @@ const login = async (req, res, next) => {
       status: 'success',
       token,
       data: {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          profile_image: user.profile_image
-        }
+        user: serializeUser(user)
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Google OAuth login / registration
+ */
+const googleLogin = async (req, res, next) => {
+  try {
+    const { name, email, googleId, profile_image } = req.body;
+
+    if (!email) {
+      return next(new BadRequestError('Email is required for Google login.'));
+    }
+
+    // Check if user already exists
+    let user = await User.findOne({ email });
+
+    if (user) {
+      // Update Google ID and profile image if not already set
+      if (googleId && !user.google_id) {
+        user.google_id = googleId;
+      }
+      if (profile_image && !user.profile_image) {
+        user.profile_image = profile_image;
+      }
+      await user.save();
+    } else {
+      // Create a new user account with a random password (Google users don't need one)
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(randomPassword, salt);
+
+      user = await User.create({
+        name: name || email.split('@')[0],
+        email,
+        password_hash: passwordHash,
+        google_id: googleId || null,
+        profile_image: profile_image || null,
+        is_verified: true // Google accounts are pre-verified
+      });
+    }
+
+    const token = generateToken(user.id, user.email);
+
+    await logActivity(user.id, 'Login', { method: 'google' }, req.ip);
+
+    res.status(200).json({
+      status: 'success',
+      token,
+      data: {
+        user: serializeUser(user)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Verify email address using token
+ */
+const verifyEmail = async (req, res, next) => {
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      return next(new BadRequestError('Verification token is required.'));
+    }
+
+    const user = await User.findOne({ verification_token: token });
+    if (!user) {
+      return next(new BadRequestError('Invalid or expired verification token.'));
+    }
+
+    user.is_verified = true;
+    user.verification_token = null;
+    await user.save();
+
+    await logActivity(user.id, 'Email Verified', {}, req.ip);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Email verified successfully.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Request password reset (forgot password)
+ */
+const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return next(new BadRequestError('Email address is required.'));
+    }
+
+    const user = await User.findOne({ email });
+
+    // Always return success to prevent email enumeration attacks
+    if (!user) {
+      return res.status(200).json({
+        status: 'success',
+        message: 'If an account with that email exists, a password reset link has been sent.'
+      });
+    }
+
+    // Generate reset token (valid for 1 hour)
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.reset_token = resetToken;
+    user.reset_token_expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save();
+
+    // In production, send email with reset link. For now, log the token.
+    const logger = require('../config/logger');
+    logger.info(`[Password Reset] Token for ${email}: ${resetToken}`);
+
+    await logActivity(user.id, 'Password Reset Requested', {}, req.ip);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'If an account with that email exists, a password reset link has been sent.',
+      // Include token in development mode for testing
+      ...(process.env.NODE_ENV === 'development' && { reset_token: resetToken })
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Reset password using token
+ */
+const resetPassword = async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return next(new BadRequestError('Reset token and new password are required.'));
+    }
+
+    if (password.length < 6) {
+      return next(new BadRequestError('Password must be at least 6 characters long.'));
+    }
+
+    const user = await User.findOne({
+      reset_token: token,
+      reset_token_expires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return next(new BadRequestError('Invalid or expired reset token.'));
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    user.password_hash = await bcrypt.hash(password, salt);
+    user.reset_token = null;
+    user.reset_token_expires = null;
+    await user.save();
+
+    await logActivity(user.id, 'Password Reset Completed', {}, req.ip);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Password has been reset successfully. You can now log in with your new password.'
     });
   } catch (error) {
     next(error);
@@ -140,21 +324,22 @@ const getProfile = async (req, res, next) => {
 };
 
 /**
- * Update authenticated user profile
+ * Update authenticated user profile (including settings)
  */
 const updateProfile = async (req, res, next) => {
   try {
-    const { name, profile_image } = req.body;
     const userId = req.user.id;
+    const allowedFields = [
+      'name', 'profile_image',
+      'theme_color', 'dark_mode', 'sidebar_color',
+      'accent_color', 'font_size', 'storage_plan'
+    ];
 
     const updateData = {};
-
-    if (name !== undefined) {
-      updateData.name = name;
-    }
-
-    if (profile_image !== undefined) {
-      updateData.profile_image = profile_image;
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -166,12 +351,7 @@ const updateProfile = async (req, res, next) => {
     res.status(200).json({
       status: 'success',
       data: {
-        user: {
-          id: updatedUser.id,
-          name: updatedUser.name,
-          email: updatedUser.email,
-          profile_image: updatedUser.profile_image
-        }
+        user: serializeUser(updatedUser)
       }
     });
   } catch (error) {
@@ -180,7 +360,7 @@ const updateProfile = async (req, res, next) => {
 };
 
 /**
- * Securely rotation / update password
+ * Securely rotate / update password
  */
 const changePassword = async (req, res, next) => {
   try {
@@ -199,6 +379,11 @@ const changePassword = async (req, res, next) => {
     const isMatch = await bcrypt.compare(oldPassword, hash);
     if (!isMatch) {
       return next(new BadRequestError('Existing password provided is incorrect.'));
+    }
+
+    // Ensure new password is different from old password
+    if (oldPassword === newPassword) {
+      return next(new BadRequestError('New password must be different from the current password.'));
     }
 
     // Encrypt the new password
@@ -221,6 +406,10 @@ const changePassword = async (req, res, next) => {
 module.exports = {
   register,
   login,
+  googleLogin,
+  verifyEmail,
+  forgotPassword,
+  resetPassword,
   logout,
   getProfile,
   updateProfile,

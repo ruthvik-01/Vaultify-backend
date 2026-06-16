@@ -1,5 +1,6 @@
 const Folder = require('../models/Folder');
 const File = require('../models/File');
+const logger = require('../config/logger');
 const { logActivity } = require('../services/activityService');
 const { deleteFile } = require('../services/s3Service');
 const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/errors');
@@ -165,7 +166,7 @@ const deleteFolder = async (req, res, next) => {
     const s3DeletePromises = files.map((file) =>
       deleteFile(file.s3_key).catch((err) => {
         // Log S3 deletion failures but do not block the DB deletion flow
-        console.error(`Deferred S3 purge failure for key: ${file.s3_key}. Error: ${err.message}`);
+        logger.error(`Deferred S3 purge failure for key: ${file.s3_key}. Error: ${err.message}`);
       })
     );
     await Promise.all(s3DeletePromises);

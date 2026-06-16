@@ -4,6 +4,10 @@ const router = express.Router();
 const {
   register,
   login,
+  googleLogin,
+  verifyEmail,
+  forgotPassword,
+  resetPassword,
   logout,
   getProfile,
   updateProfile,
@@ -23,6 +27,10 @@ const {
 // Public endpoints with strict auth rate limits
 router.post('/register', authLimiter, validate(registerSchema), register);
 router.post('/login', authLimiter, validate(loginSchema), login);
+router.post('/google', authLimiter, googleLogin);
+router.get('/verify-email', verifyEmail);
+router.post('/forgot-password', authLimiter, forgotPassword);
+router.post('/reset-password', authLimiter, resetPassword);
 
 // Protected endpoints (require JWT)
 router.post('/logout', protect, logout);

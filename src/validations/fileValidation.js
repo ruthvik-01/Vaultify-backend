@@ -29,7 +29,7 @@ const favoriteFileSchema = Joi.object({
 
 const createShareSchema = Joi.object({
   file_id: objectId.required(),
-  permission: Joi.string().valid('read').default('read'),
+  permission: Joi.string().valid('read', 'download').default('read'),
   expiry_hours: Joi.number().integer().min(1).max(720).default(24) // 1 hour to 30 days
 });
 

@@ -27,7 +27,13 @@ const loginSchema = Joi.object({
 
 const updateProfileSchema = Joi.object({
   name: Joi.string().trim().min(2).max(100).optional(),
-  profile_image: Joi.string().trim().uri().allow(null, '').optional()
+  profile_image: Joi.string().trim().uri().allow(null, '').optional(),
+  theme_color: Joi.string().trim().max(50).optional(),
+  dark_mode: Joi.string().trim().valid('light', 'dark', 'system').optional(),
+  sidebar_color: Joi.string().trim().max(50).optional(),
+  accent_color: Joi.string().trim().max(50).optional(),
+  font_size: Joi.string().trim().valid('small', 'medium', 'large').optional(),
+  storage_plan: Joi.string().trim().valid('free', 'pro').optional()
 }).min(1); // Require at least one field to be updated
 
 const changePasswordSchema = Joi.object({

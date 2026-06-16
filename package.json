@@ -1,7 +1,7 @@
 {
-  "name": "studentvault-backend",
+  "name": "vaultify-backend",
   "version": "1.0.0",
-  "description": "Production-ready backend for StudentVault Career Management Platform",
+  "description": "Production-ready backend for Vaultify Cloud Storage Platform",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

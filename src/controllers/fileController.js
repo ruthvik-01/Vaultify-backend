@@ -231,7 +231,8 @@ const favoriteFile = async (req, res, next) => {
 const downloadFile = async (req, res, next) => {
   try {
     const file = await findOwnedFile(req.params.id, req.user.id);
-    const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 900);
+    const disposition = req.query.disposition === 'inline' ? 'inline' : 'attachment';
+    const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 900, disposition);
 
     await logActivity(req.user.id, 'Download', { fileId: file.id, fileName: file.file_name }, req.ip);
 
