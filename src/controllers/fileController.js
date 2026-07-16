@@ -2,9 +2,38 @@ const crypto = require('crypto');
 const File = require('../models/File');
 const Folder = require('../models/Folder');
 const SharedLink = require('../models/SharedLink');
-const { uploadFile, deleteFile: deleteS3File, getPreSignedDownloadUrl } = require('../services/s3Service');
+const {
+  uploadFile,
+  deleteFile: deleteS3File,
+  getPreSignedDownloadUrl,
+  initiateMultipartUpload,
+  generateUploadPartUrls,
+  completeMultipartUpload,
+  abortMultipartUpload,
+  makeObjectPublic,
+  getObjectUrl,
+  PART_SIZE,
+  MAX_FILE_SIZE
+} = require('../services/s3Service');
 const { logActivity } = require('../services/activityService');
 const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/errors');
+
+// Allowed MIME types (shared between multer and presigned upload validation)
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'application/zip',
+  'application/x-zip-compressed',
+  'text/plain',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/x-matroska',
+  'video/x-msvideo'
+];
 
 const serializeFile = (file) => ({
   id: file.id,
@@ -23,6 +52,7 @@ const serializeFile = (file) => ({
 const getS3Category = (mimetype) => {
   if (mimetype === 'application/pdf') return 'documents';
   if (mimetype.startsWith('image/')) return 'images';
+  if (mimetype.startsWith('video/')) return 'videos';
   if (mimetype.includes('zip')) return 'archives';
   return 'files';
 };
@@ -336,6 +366,207 @@ const deleteShare = async (req, res, next) => {
   }
 };
 
+/**
+ * Generate a public viewing link for a video file.
+ * Sets public-read ACL on the S3 object and creates a short URL code.
+ * The link never expires.
+ */
+const generateVideoLink = async (req, res, next) => {
+  try {
+    const file = await findOwnedFile(req.params.id, req.user.id);
+
+    if (!file.file_type.startsWith('video/')) {
+      return next(new BadRequestError('Public video links can only be generated for video files.'));
+    }
+
+    // Make the S3 object publicly readable (permanent URL, no expiry)
+    await makeObjectPublic(file.s3_key);
+
+    // Generate a short 8-character URL code
+    const shortCode = crypto.randomBytes(6).toString('base64url'); // 8 chars, URL-safe
+
+    const sharedLink = await SharedLink.create({
+      file_id: file.id,
+      token: shortCode,
+      permission: 'read',
+      expiry_date: null // never expires
+    });
+
+    await logActivity(
+      req.user.id,
+      'Share',
+      { fileId: file.id, fileName: file.file_name, shareId: sharedLink.id, type: 'video-link' },
+      req.ip
+    );
+
+    const shortUrl = `${req.protocol}://${req.get('host')}/v/${shortCode}`;
+    const permanentS3Url = getObjectUrl(file.s3_key);
+
+    res.status(201).json({
+      status: 'success',
+      data: {
+        id: sharedLink.id,
+        file_id: file.id,
+        short_url: shortUrl,
+        direct_url: permanentS3Url
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Public redirect: short URL → permanent S3 object URL.
+ * No login required. Redirects the browser directly to the video on S3.
+ */
+const getPublicVideo = async (req, res, next) => {
+  try {
+    const sharedLink = await SharedLink.findOne({ token: req.params.code }).populate('file_id');
+
+    if (!sharedLink || !sharedLink.file_id) {
+      return next(new NotFoundError('Video link not found or has been revoked.'));
+    }
+
+    const file = sharedLink.file_id;
+
+    if (!file.file_type.startsWith('video/')) {
+      return next(new BadRequestError('This link does not point to a video file.'));
+    }
+
+    const permanentUrl = getObjectUrl(file.s3_key);
+
+    await logActivity(file.user_id, 'Video View', { fileId: file.id, viaShare: sharedLink.id, status: 'public' }, req.ip);
+
+    // 302 redirect — browser goes directly to S3
+    res.redirect(302, permanentUrl);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Initiate a presigned multipart upload.
+ * Client sends file metadata; server returns presigned URLs for direct S3 upload.
+ * Supports files up to 15 GB.
+ */
+const initiateUploadController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { file_name, file_type, file_size, folder_id } = req.body;
+
+    // Validate MIME type
+    if (!ALLOWED_MIME_TYPES.includes(file_type)) {
+      return next(new BadRequestError(`Unsupported file type: ${file_type}`));
+    }
+
+    // Validate file size
+    if (file_size > MAX_FILE_SIZE) {
+      return next(new BadRequestError(`File size exceeds the 15 GB limit.`));
+    }
+
+    // Validate folder ownership
+    const folder = await ensureOwnedFolder(folder_id, userId);
+
+    // Build the S3 key
+    const category = getS3Category(file_type);
+    const objectId = crypto.randomUUID();
+    const sanitizedName = file_name.replace(/\s+/g, '-');
+    const s3Key = `users/${userId}/${category}/${objectId}-${sanitizedName}`;
+
+    // Calculate number of parts
+    const totalParts = Math.ceil(file_size / PART_SIZE);
+
+    // Initiate S3 multipart upload
+    const uploadId = await initiateMultipartUpload(s3Key, file_type);
+
+    // Generate presigned URLs for each part
+    const parts = await generateUploadPartUrls(s3Key, uploadId, totalParts);
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        upload_id: uploadId,
+        s3_key: s3Key,
+        part_size: PART_SIZE,
+        total_parts: totalParts,
+        parts,
+        // Pass back metadata so the client can send it on complete
+        file_metadata: {
+          file_name,
+          file_type,
+          file_size,
+          folder_id: folder ? folder.id : null
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Complete a multipart upload after the client finishes uploading all parts.
+ * Creates the File record in MongoDB.
+ */
+const completeUploadController = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id } = req.body;
+
+    if (!upload_id || !s3_key || !parts || !Array.isArray(parts) || parts.length === 0) {
+      return next(new BadRequestError('upload_id, s3_key, and parts[] are required.'));
+    }
+
+    // Complete the S3 multipart upload
+    await completeMultipartUpload(s3_key, upload_id, parts);
+
+    // Create the file record in MongoDB
+    const createdFile = await File.create({
+      user_id: userId,
+      folder_id: folder_id || null,
+      file_name: file_name,
+      original_name: file_name,
+      file_type: file_type,
+      file_size: file_size,
+      s3_key: s3_key
+    });
+
+    await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name, method: 'multipart' }, req.ip);
+
+    res.status(201).json({
+      status: 'success',
+      data: {
+        file: serializeFile(createdFile)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Abort a multipart upload and clean up S3 parts.
+ */
+const abortUploadController = async (req, res, next) => {
+  try {
+    const { upload_id, s3_key } = req.body;
+
+    if (!upload_id || !s3_key) {
+      return next(new BadRequestError('upload_id and s3_key are required.'));
+    }
+
+    await abortMultipartUpload(s3_key, upload_id);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Multipart upload aborted and parts cleaned up.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   uploadFile: uploadFileController,
   getFiles,
@@ -347,5 +578,10 @@ module.exports = {
   downloadFile,
   shareFile,
   getSharedFile,
-  deleteShare
+  deleteShare,
+  generateVideoLink,
+  getPublicVideo,
+  initiateUpload: initiateUploadController,
+  completeUpload: completeUploadController,
+  abortUpload: abortUploadController
 };

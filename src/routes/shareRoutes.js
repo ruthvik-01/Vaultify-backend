@@ -11,7 +11,7 @@ const { protect } = require('../middleware/authMiddleware');
 const validate = require('../middleware/validate');
 const { createShareSchema } = require('../validations/fileValidation');
 
-// Public read-only endpoint (no JWT verification to allow anonymous downloads)
+// Public endpoint (no JWT verification to allow anonymous downloads)
 router.get('/:token', getSharedFile);
 
 // Protected endpoints for generating or revoking shares

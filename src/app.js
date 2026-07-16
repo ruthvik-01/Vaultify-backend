@@ -65,6 +65,10 @@ app.use('/api/folders', folderRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/share', shareRoutes);
 
+// Short URL redirect for public video links (e.g. /v/abc12345)
+const { getPublicVideo } = require('./controllers/fileController');
+app.get('/v/:code', getPublicVideo);
+
 app.all('*', (req, res, next) => {
   next(new NotFoundError(`Can't find ${req.originalUrl} on this server.`));
 });

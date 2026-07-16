@@ -33,7 +33,12 @@ const startServer = async () => {
     }
 
     await connectDB();
-    await checkBucketAccess();
+    try {
+      await checkBucketAccess();
+    } catch (s3Err) {
+      logger.warn(`S3 bucket access check failed (non-fatal): ${s3Err.message}`);
+      logger.warn('File upload/download features will not work until S3 is configured.');
+    }
 
     server = app.listen(PORT, HOST, () => {
       logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on ${HOST}:${PORT}`);
