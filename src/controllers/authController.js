@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { logActivity } = require('../services/activityService');
 const { BadRequestError, UnauthorizedError, ConflictError, NotFoundError } = require('../utils/errors');
+const firebaseAuthService = require('../services/firebaseAuthService');
 
 /**
  * Generate a JWT token signed with JWT_SECRET
@@ -120,7 +121,20 @@ const login = async (req, res, next) => {
  */
 const googleLogin = async (req, res, next) => {
   try {
-    const { name, email, googleId, profile_image } = req.body;
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return next(new BadRequestError('Firebase ID Token is required.'));
+    }
+
+    let decodedToken;
+    try {
+      decodedToken = await firebaseAuthService.verifyFirebaseIdToken(idToken);
+    } catch (error) {
+      return next(new UnauthorizedError(error.message || 'Firebase ID Token verification failed.'));
+    }
+
+    const { uid: googleId, email, name, picture: profile_image } = decodedToken;
 
     if (!email) {
       return next(new BadRequestError('Email is required for Google login.'));
