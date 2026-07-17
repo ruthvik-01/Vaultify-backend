@@ -38,7 +38,11 @@ const createVideoShare = async (userId, videoId, hostUrl) => {
 };
 
 const resolveShareToken = async (token) => {
-  const share = await VideoShare.findOne({ token, isActive: true }).populate('videoId');
+  const share = await VideoShare.findOne({ token, isActive: true })
+    .populate({
+      path: 'videoId',
+      populate: { path: 'ownerId', select: 'name' }
+    });
 
   if (!share || !share.videoId) {
     throw new NotFoundError('Shared video link not found, disabled, or expired.');
@@ -65,7 +69,9 @@ const resolveShareToken = async (token) => {
     originalName: video.originalName,
     mimeType: video.mimeType,
     size: video.size,
-    downloadUrl: tempPresignedUrl
+    downloadUrl: tempPresignedUrl,
+    createdAt: video.createdAt,
+    ownerName: video.ownerId?.name || 'Owner'
   };
 };
 

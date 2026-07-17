@@ -82,9 +82,33 @@ const getShareLink = async (req, res, next) => {
 const resolvePublicShare = async (req, res, next) => {
   try {
     const { token } = req.params;
+
+    // Check if the token belongs to a permanent public video share first
+    const Video = require('../models/Video');
+    const video = await Video.findOne({ shareToken: token, isShared: true }).populate('ownerId', 'name');
+
+    if (video) {
+      // If request asks for redirect/download directly (e.g. via redirect query or path)
+      if (req.query.redirect === 'true' || req.path.endsWith('/download')) {
+        return res.redirect(video.publicUrl);
+      }
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          file_name: video.filename,
+          file_size: video.size,
+          file_type: video.mimeType,
+          download_url: video.publicUrl,
+          createdAt: video.createdAt,
+          ownerName: video.ownerId?.name || 'Owner'
+        }
+      });
+    }
+
+    // Fall back to legacy VideoShare token
     const result = await shareVideoService.resolveShareToken(token);
 
-    // If request asks for redirect/download directly (e.g. via redirect query or path)
     if (req.query.redirect === 'true' || req.path.endsWith('/download')) {
       return res.redirect(result.downloadUrl);
     }
@@ -95,7 +119,9 @@ const resolvePublicShare = async (req, res, next) => {
         file_name: result.filename,
         file_size: result.size,
         file_type: result.mimeType,
-        download_url: result.downloadUrl
+        download_url: result.downloadUrl,
+        createdAt: result.createdAt,
+        ownerName: result.ownerName || 'Owner'
       }
     });
   } catch (error) {
@@ -121,6 +147,13 @@ const createPermanentPublicShare = async (req, res, next) => {
 const redirectPermanentPublicShare = async (req, res, next) => {
   try {
     const { token } = req.params;
+
+    // If the browser requests the HTML layout page directly, bypass backend S3 redirect 
+    // to let the frontend SPA page load and execute.
+    const accept = req.headers.accept || '';
+    if (accept.includes('text/html')) {
+      return next();
+    }
     
     // Check if the token belongs to a permanent public video share
     const Video = require('../models/Video');
