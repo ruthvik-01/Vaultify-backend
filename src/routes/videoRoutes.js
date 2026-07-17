@@ -11,6 +11,11 @@ router.post('/upload/initiate', protect, validateVideoMetadata, videoController.
 router.post('/upload/complete', protect, videoController.completeUpload);
 router.post('/upload/abort', protect, videoController.abortUpload);
 
+// New frontend-specified paths for direct direct S3 upload flows
+router.post('/initiate-upload', protect, validateVideoMetadata, videoController.initiateUpload);
+router.post('/complete-upload', protect, videoController.completeUpload);
+router.post('/abort-upload', protect, videoController.abortUpload);
+
 // Local development fallback PUT endpoint (Public, acts like S3 PUT)
 router.put('/upload/local-part', videoController.uploadLocalPart);
 
