@@ -1,0 +1,22 @@
+const mongoose = require('mongoose');
+
+const videoSchema = new mongoose.Schema({
+  ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  filename: { type: String, required: true },
+  originalName: { type: String, required: true },
+  mimeType: { type: String, required: true },
+  size: { type: Number, required: true },
+  duration: { type: Number, default: 0 },
+  thumbnail: { type: String, default: '' },
+  folderId: { type: mongoose.Schema.Types.ObjectId, ref: 'VideoFolder', default: null },
+  s3Key: { type: String, required: true },
+  status: { type: String, enum: ['Uploading', 'Active', 'Failed'], default: 'Uploading' }
+}, {
+  timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
+});
+
+// Indexing for performance
+videoSchema.index({ ownerId: 1, folderId: 1 });
+videoSchema.index({ status: 1 });
+
+module.exports = mongoose.model('Video', videoSchema);

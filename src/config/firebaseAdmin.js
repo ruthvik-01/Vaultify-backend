@@ -1,5 +1,7 @@
-const { initializeApp, getApps, cert, applicationDefault } = require('firebase-admin');
+const admin = require('firebase-admin');
 const logger = require('./logger');
+
+const getApps = () => admin.apps || [];
 
 let firebaseApp = null;
 
@@ -11,8 +13,8 @@ try {
       process.env.FIREBASE_PRIVATE_KEY
     ) {
       const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
-      firebaseApp = initializeApp({
-        credential: cert({
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.cert({
           projectId: process.env.FIREBASE_PROJECT_ID,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
           privateKey: privateKey,
@@ -20,8 +22,8 @@ try {
       });
       logger.info('Firebase Admin initialized successfully using environment variables.');
     } else {
-      firebaseApp = initializeApp({
-        credential: applicationDefault(),
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
       });
       logger.info('Firebase Admin initialized successfully using Application Default Credentials.');
     }
