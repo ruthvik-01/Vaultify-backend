@@ -10,7 +10,10 @@ const videoSchema = new mongoose.Schema({
   thumbnail: { type: String, default: '' },
   folderId: { type: mongoose.Schema.Types.ObjectId, ref: 'VideoFolder', default: null },
   s3Key: { type: String, required: true },
-  status: { type: String, enum: ['Uploading', 'Active', 'Failed'], default: 'Uploading' }
+  status: { type: String, enum: ['Uploading', 'Active', 'Failed'], default: 'Uploading' },
+  shareToken: { type: String, default: null, index: true },
+  publicUrl: { type: String, default: null },
+  isShared: { type: Boolean, default: false }
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });

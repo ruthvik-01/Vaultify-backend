@@ -81,7 +81,7 @@ app.use('/api/share', shareRoutes);
 // Public Video Share Routes at root (Unauthenticated, no JWT)
 app.get('/share/:token/download', videoUploadController.resolvePublicShare);
 app.get('/share/:token/stream', videoController.streamSharedVideo);
-app.get('/share/:token', videoUploadController.resolvePublicShare);
+app.get('/share/:token', videoUploadController.redirectPermanentPublicShare);
 
 // Short URL redirect for public video links (e.g. /v/abc12345)
 const { getPublicVideo } = require('./controllers/fileController');

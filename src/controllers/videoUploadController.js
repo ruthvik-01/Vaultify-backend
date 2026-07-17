@@ -103,10 +103,63 @@ const resolvePublicShare = async (req, res, next) => {
   }
 };
 
+// ─── PERMANENT PUBLIC SHARING CONTROLLERS (NO PRESIGNED URLS) ─────────────────
+const createPermanentPublicShare = async (req, res, next) => {
+  try {
+    const { videoId } = req.params;
+    const userId = req.user.id;
+    const hostUrl = `${req.protocol}://${req.get('host')}`;
+
+    const result = await shareVideoService.createPermanentPublicShare(userId, videoId, hostUrl);
+
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const redirectPermanentPublicShare = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    
+    // Check if the token belongs to a permanent public video share
+    const Video = require('../models/Video');
+    const video = await Video.findOne({ shareToken: token, isShared: true });
+    
+    if (video) {
+      return res.redirect(302, video.publicUrl);
+    }
+
+    // Check if the token belongs to a legacy VideoShare session
+    const VideoShare = require('../models/VideoShare');
+    const share = await VideoShare.findOne({ token, isActive: true }).populate('videoId');
+    
+    if (share && share.videoId) {
+      const s3Service = require('../services/s3Service');
+      const presignedUrl = await s3Service.getPreSignedDownloadUrl(
+        share.videoId.s3Key,
+        share.videoId.originalName,
+        3600
+      );
+      return res.redirect(302, presignedUrl);
+    }
+
+    // Return HTTP 404 for invalid tokens
+    res.status(404).json({
+      status: 'fail',
+      message: 'Shared link not found.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   initiateUpload,
   completeUpload,
   abortUpload,
   getShareLink,
-  resolvePublicShare
+  resolvePublicShare,
+  createPermanentPublicShare,
+  redirectPermanentPublicShare
 };

@@ -43,5 +43,6 @@ router.delete('/:id', protect, videoController.deleteVideo);
 
 // Share generation
 router.post('/share', protect, videoController.createShare);
+router.post('/:videoId/share', protect, videoUploadController.createPermanentPublicShare);
 
 module.exports = router;
