@@ -277,13 +277,37 @@ const downloadFile = async (req, res, next) => {
 
 const shareFile = async (req, res, next) => {
   try {
-    const { file_id, permission, expiry_hours } = req.body;
-    const file = await findOwnedFile(file_id, req.user.id);
+    const { file_id, folder_id, permission, expiry_hours } = req.body;
+    
+    if (!file_id && !folder_id) {
+      throw new BadRequestError('Must provide either file_id or folder_id to generate a share link.');
+    }
+
+    let targetId;
+    let targetType;
+    let targetName;
+
+    if (file_id) {
+      const file = await findOwnedFile(file_id, req.user.id);
+      targetId = file.id;
+      targetType = 'file';
+      targetName = file.file_name;
+    } else {
+      const folder = await Folder.findById(folder_id);
+      if (!folder || folder.user_id.toString() !== req.user.id.toString()) {
+        throw new NotFoundError('Folder not found or access denied.');
+      }
+      targetId = folder.id;
+      targetType = 'folder';
+      targetName = folder.folder_name;
+    }
+
     const token = crypto.randomBytes(32).toString('hex');
     const expiryDate = expiry_hours ? new Date(Date.now() + expiry_hours * 60 * 60 * 1000) : null;
 
     const sharedLink = await SharedLink.create({
-      file_id: file.id,
+      file_id: targetType === 'file' ? targetId : null,
+      folder_id: targetType === 'folder' ? targetId : null,
       token,
       permission: permission || 'read',
       expiry_date: expiryDate
@@ -292,7 +316,13 @@ const shareFile = async (req, res, next) => {
     await logActivity(
       req.user.id,
       'Share',
-      { fileId: file.id, fileName: file.file_name, shareId: sharedLink.id, expiryHours: expiry_hours || null },
+      { 
+        targetId, 
+        targetType, 
+        name: targetName, 
+        shareId: sharedLink.id, 
+        expiryHours: expiry_hours || null 
+      },
       req.ip
     );
 
@@ -300,7 +330,8 @@ const shareFile = async (req, res, next) => {
       status: 'success',
       data: {
         id: sharedLink.id,
-        file_id: file.id,
+        file_id: targetType === 'file' ? targetId : null,
+        folder_id: targetType === 'folder' ? targetId : null,
         token: sharedLink.token,
         permission: sharedLink.permission,
         expiry_date: sharedLink.expiry_date,
@@ -314,9 +345,11 @@ const shareFile = async (req, res, next) => {
 
 const getSharedFile = async (req, res, next) => {
   try {
-    const sharedLink = await SharedLink.findOne({ token: req.params.token }).populate('file_id');
+    const sharedLink = await SharedLink.findOne({ token: req.params.token })
+      .populate('file_id')
+      .populate('folder_id');
 
-    if (!sharedLink || !sharedLink.file_id) {
+    if (!sharedLink || (!sharedLink.file_id && !sharedLink.folder_id)) {
       return next(new NotFoundError('Shared link not found.'));
     }
 
@@ -324,10 +357,70 @@ const getSharedFile = async (req, res, next) => {
       return next(new ForbiddenError('This shared link has expired.'));
     }
 
-    const file = sharedLink.file_id;
+    if (sharedLink.file_id) {
+      const file = sharedLink.file_id;
+      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600);
+
+      await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public' }, req.ip);
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          type: 'file',
+          file_name: file.file_name,
+          file_type: file.file_type,
+          file_size: file.file_size,
+          download_url: presignedUrl
+        }
+      });
+    } else if (sharedLink.folder_id) {
+      const folder = sharedLink.folder_id;
+      const files = await File.find({ folder_id: folder.id });
+      const subfolders = await Folder.find({ parent_folder_id: folder.id });
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          type: 'folder',
+          file_name: folder.folder_name,
+          files: files.map(serializeFile),
+          folders: subfolders.map(f => {
+            const folderObj = f.toObject();
+            folderObj.id = folderObj._id.toString();
+            delete folderObj._id;
+            delete folderObj.__v;
+            return folderObj;
+          })
+        }
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getSharedFolderFile = async (req, res, next) => {
+  try {
+    const { token, fileId } = req.params;
+    const sharedLink = await SharedLink.findOne({ token }).populate('folder_id');
+
+    if (!sharedLink || !sharedLink.folder_id) {
+      return next(new NotFoundError('Shared folder link not found.'));
+    }
+
+    if (sharedLink.expiry_date && new Date() > sharedLink.expiry_date) {
+      return next(new ForbiddenError('This shared folder link has expired.'));
+    }
+
+    // Verify file exists and belongs to the folder
+    const file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
+    if (!file) {
+      return next(new NotFoundError('File not found in this shared folder.'));
+    }
+
     const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600);
 
-    await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public' }, req.ip);
+    await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public_folder' }, req.ip);
 
     res.status(200).json({
       status: 'success',
@@ -578,6 +671,7 @@ module.exports = {
   downloadFile,
   shareFile,
   getSharedFile,
+  getSharedFolderFile,
   deleteShare,
   generateVideoLink,
   getPublicVideo,

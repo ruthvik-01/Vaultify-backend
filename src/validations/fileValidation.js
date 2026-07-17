@@ -28,10 +28,11 @@ const favoriteFileSchema = Joi.object({
 });
 
 const createShareSchema = Joi.object({
-  file_id: objectId.required(),
+  file_id: objectId.optional(),
+  folder_id: objectId.optional(),
   permission: Joi.string().valid('read', 'download').default('read'),
   expiry_hours: Joi.number().integer().min(1).max(720).default(24) // 1 hour to 30 days
-});
+}).xor('file_id', 'folder_id');
 
 // ── Presigned multipart upload schemas ──────────────────────────────────
 
