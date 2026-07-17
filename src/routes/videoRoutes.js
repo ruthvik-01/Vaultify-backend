@@ -1,20 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const videoController = require('../controllers/videoController');
+const videoUploadController = require('../controllers/videoUploadController');
 const { protect } = require('../middleware/authMiddleware');
-const { validateVideoMetadata } = require('../middleware/videoUploadMiddleware');
+const validate = require('../middleware/validate');
+const {
+  initiateUploadSchema,
+  completeUploadSchema,
+  abortUploadSchema
+} = require('../middleware/uploadValidation');
 
 // ─── PROTECTED ROUTES (Requires JWT authentication) ─────────────────────────
 
-// Video upload APIs
-router.post('/upload/initiate', protect, validateVideoMetadata, videoController.initiateUpload);
-router.post('/upload/complete', protect, videoController.completeUpload);
-router.post('/upload/abort', protect, videoController.abortUpload);
+// Direct AWS S3 Multipart Upload Endpoints
+router.post('/initiate-upload', protect, validate(initiateUploadSchema), videoUploadController.initiateUpload);
+router.post('/complete-upload', protect, validate(completeUploadSchema), videoUploadController.completeUpload);
+router.post('/abort-upload', protect, validate(abortUploadSchema), videoUploadController.abortUpload);
 
-// New frontend-specified paths for direct direct S3 upload flows
-router.post('/initiate-upload', protect, validateVideoMetadata, videoController.initiateUpload);
-router.post('/complete-upload', protect, videoController.completeUpload);
-router.post('/abort-upload', protect, videoController.abortUpload);
+// Permanent Share link generation
+router.get('/:id/share', protect, videoUploadController.getShareLink);
+
+// Legacy/Backward Compatible upload routes (now pointing to the new S3 direct flow)
+router.post('/upload/initiate', protect, validate(initiateUploadSchema), videoUploadController.initiateUpload);
+router.post('/upload/complete', protect, validate(completeUploadSchema), videoUploadController.completeUpload);
+router.post('/upload/abort', protect, validate(abortUploadSchema), videoUploadController.abortUpload);
 
 // Local development fallback PUT endpoint (Public, acts like S3 PUT)
 router.put('/upload/local-part', videoController.uploadLocalPart);

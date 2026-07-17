@@ -13,6 +13,7 @@ const fileRoutes = require('./routes/fileRoutes');
 const shareRoutes = require('./routes/shareRoutes');
 const videoRoutes = require('./routes/videoRoutes');
 const videoController = require('./controllers/videoController');
+const videoUploadController = require('./controllers/videoUploadController');
 const VideoShare = require('./models/VideoShare');
 
 const app = express();
@@ -64,10 +65,7 @@ const handleVideoShareFallback = async (req, res, next) => {
   try {
     const isVideoShare = await VideoShare.findOne({ token, isActive: true });
     if (isVideoShare) {
-      if (req.path.endsWith('/download')) {
-        return videoController.downloadSharedVideo(req, res, next);
-      }
-      return videoController.getSharedItem(req, res, next);
+      return videoUploadController.resolvePublicShare(req, res, next);
     }
   } catch (err) {
     // Ignore and proceed to standard handler
@@ -81,9 +79,9 @@ app.get('/api/share/:token', handleVideoShareFallback);
 app.use('/api/share', shareRoutes);
 
 // Public Video Share Routes at root (Unauthenticated, no JWT)
-app.get('/share/:token/download', videoController.downloadSharedVideo);
+app.get('/share/:token/download', videoUploadController.resolvePublicShare);
 app.get('/share/:token/stream', videoController.streamSharedVideo);
-app.get('/share/:token', videoController.getSharedItem);
+app.get('/share/:token', videoUploadController.resolvePublicShare);
 
 // Short URL redirect for public video links (e.g. /v/abc12345)
 const { getPublicVideo } = require('./controllers/fileController');
