@@ -402,35 +402,64 @@ const getSharedFile = async (req, res, next) => {
 const getSharedFolderFile = async (req, res, next) => {
   try {
     const { token, fileId } = req.params;
+
+    // 1. Try SharedLink first
     const sharedLink = await SharedLink.findOne({ token }).populate('folder_id');
-
-    if (!sharedLink || !sharedLink.folder_id) {
-      return next(new NotFoundError('Shared folder link not found.'));
-    }
-
-    if (sharedLink.expiry_date && new Date() > sharedLink.expiry_date) {
-      return next(new ForbiddenError('This shared folder link has expired.'));
-    }
-
-    // Verify file exists and belongs to the folder
-    const file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
-    if (!file) {
-      return next(new NotFoundError('File not found in this shared folder.'));
-    }
-
-    const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600);
-
-    await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public_folder' }, req.ip);
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        file_name: file.file_name,
-        file_type: file.file_type,
-        file_size: file.file_size,
-        download_url: presignedUrl
+    if (sharedLink && sharedLink.folder_id) {
+      if (sharedLink.expiry_date && new Date() > sharedLink.expiry_date) {
+        return next(new ForbiddenError('This shared folder link has expired.'));
       }
-    });
+      
+      const file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
+      if (!file) {
+        return next(new NotFoundError('File not found in this shared folder.'));
+      }
+
+      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600);
+      await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public_folder' }, req.ip);
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          file_name: file.file_name,
+          file_type: file.file_type,
+          file_size: file.file_size,
+          download_url: presignedUrl
+        }
+      });
+    }
+
+    // 2. Try VideoShare
+    const VideoShare = require('../models/VideoShare');
+    const Video = require('../models/Video');
+    const s3Service = require('../services/s3Service');
+
+    const videoShare = await VideoShare.findOne({ token, isActive: true }).populate('folderId');
+    if (videoShare && videoShare.folderId) {
+      if (videoShare.expiresAt && new Date() > videoShare.expiresAt) {
+        return next(new ForbiddenError('This shared folder link has expired.'));
+      }
+
+      const video = await Video.findOne({ _id: fileId, folderId: videoShare.folderId._id, status: 'Active' });
+      if (!video) {
+        return next(new NotFoundError('Video not found in this shared folder.'));
+      }
+
+      const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600);
+      await logActivity(video.ownerId, 'Download', { videoId: video._id, viaShare: videoShare.id, status: 'public_video_folder' }, req.ip);
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          file_name: video.originalName || video.filename,
+          file_type: video.mimeType,
+          file_size: video.size,
+          download_url: presignedUrl
+        }
+      });
+    }
+
+    return next(new NotFoundError('Shared folder link not found or invalid.'));
   } catch (error) {
     next(error);
   }
