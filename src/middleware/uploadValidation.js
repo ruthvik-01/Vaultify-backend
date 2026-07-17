@@ -29,7 +29,12 @@ const completeUploadSchema = Joi.object({
   ).min(1).required().messages({
     'array.min': 'At least one part is required to complete the upload.'
   }),
-  folderId: Joi.string().trim().allow(null, '').optional()
+  folderId: Joi.string().trim().allow(null, '').optional(),
+  objectKey: Joi.string().trim().optional(),
+  s3Key: Joi.string().trim().optional(),
+  filename: Joi.string().trim().optional(),
+  mimeType: Joi.string().trim().optional(),
+  size: Joi.number().optional()
 });
 
 const abortUploadSchema = Joi.object({
@@ -38,7 +43,9 @@ const abortUploadSchema = Joi.object({
   }),
   uploadId: Joi.string().trim().required().messages({
     'string.empty': 'UploadId is required'
-  })
+  }),
+  objectKey: Joi.string().trim().optional(),
+  s3Key: Joi.string().trim().optional()
 });
 
 module.exports = {

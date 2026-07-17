@@ -47,6 +47,9 @@ const initiateVideoUpload = async (userId, { filename, mimeType, size, folderId 
 
 const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size }) => {
   try {
+    if (!objectKey) {
+      throw new BadRequestError('S3 object key is missing before completing multipart upload.');
+    }
     logger.info(`Completing S3 multipart upload: Video ${videoId}, S3 Key ${objectKey}`);
 
     // Complete direct S3 upload
@@ -78,6 +81,9 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
 
 const abortVideoUpload = async (userId, { uploadId, objectKey }) => {
   try {
+    if (!objectKey) {
+      throw new BadRequestError('S3 object key is missing before aborting multipart upload.');
+    }
     logger.info(`Upload Aborted: Aborting S3 multipart upload session ${uploadId} for S3 key ${objectKey}`);
     
     // Clean S3 multipart upload session
