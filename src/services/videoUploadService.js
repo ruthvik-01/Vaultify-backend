@@ -41,7 +41,8 @@ const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId =
       uploadId,
       videoId: video._id,
       s3Key,
-      partUrls
+      partUrls,
+      chunkSize: partSize
     };
   } else {
     // Local development fallback
