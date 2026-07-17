@@ -86,13 +86,20 @@ const resolvePublicShare = async (req, res, next) => {
   try {
     const { token } = req.params;
 
-    // Check if the token belongs to a permanent public video share first
+    // Check if the token belongs to a permanent video share first
     const video = await Video.findOne({ shareToken: token, isShared: true }).populate('ownerId', 'name');
 
     if (video) {
-      // If request asks for redirect/download directly (e.g. via redirect query or path)
+      // Generate a fresh presigned URL for streaming (valid 1 hour)
+      const streamUrl = await s3Service.getPreSignedDownloadUrl(
+        video.s3Key,
+        video.originalName || video.filename,
+        3600,
+        'inline'
+      );
+
       if (req.query.redirect === 'true' || req.path.endsWith('/download')) {
-        return res.redirect(video.publicUrl);
+        return res.redirect(streamUrl);
       }
 
       return res.status(200).json({
@@ -101,7 +108,7 @@ const resolvePublicShare = async (req, res, next) => {
           file_name: video.filename,
           file_size: video.size,
           file_type: video.mimeType,
-          download_url: video.publicUrl,
+          download_url: streamUrl,
           createdAt: video.createdAt,
           ownerName: video.ownerId?.name || 'Owner'
         }
@@ -213,11 +220,17 @@ const redirectPermanentPublicShare = async (req, res, next) => {
       return next();
     }
     
-    // Check if the token belongs to a permanent public video share
+    // Check if the token belongs to a permanent video share
     const video = await Video.findOne({ shareToken: token, isShared: true });
     
     if (video) {
-      return res.redirect(302, video.publicUrl);
+      const presignedUrl = await s3Service.getPreSignedDownloadUrl(
+        video.s3Key,
+        video.originalName || video.filename,
+        3600,
+        'inline'
+      );
+      return res.redirect(302, presignedUrl);
     }
 
     // Check if the token belongs to a legacy VideoShare session

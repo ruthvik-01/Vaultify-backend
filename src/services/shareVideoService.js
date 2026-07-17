@@ -75,7 +75,7 @@ const resolveShareToken = async (token) => {
   };
 };
 
-// ─── PERMANENT PUBLIC SHARING (NO PRESIGNED URLS) ─────────────────────────────
+// ─── PERMANENT PUBLIC SHARING ─────────────────────────────────────────────────
 const createPermanentPublicShare = async (userId, videoId, hostUrl) => {
   // Validate ownership
   const video = await Video.findOne({ _id: videoId, ownerId: userId });
@@ -91,22 +91,15 @@ const createPermanentPublicShare = async (userId, videoId, hostUrl) => {
     };
   }
 
-  // Set the S3 object ACL to public-read
-  await s3Service.makeObjectPublic(video.s3Key);
-
-  // Generate permanent public URL
-  const publicUrl = s3Service.getObjectUrl(video.s3Key);
-
   // Generate an 8-character secure token
   const shareToken = crypto.randomBytes(6).toString('base64url');
 
-  // Store the mapping back on the Video model
+  // Store the mapping back on the Video model (no public ACL needed)
   video.shareToken = shareToken;
-  video.publicUrl = publicUrl;
   video.isShared = true;
   await video.save();
 
-  logger.info(`Share Link Created: Permanent public share link generated for video ${videoId} by user ${userId}`);
+  logger.info(`Share Link Created: Permanent share link generated for video ${videoId} by user ${userId}`);
 
   const cleanHost = hostUrl.replace(/\/$/, '');
   return {
