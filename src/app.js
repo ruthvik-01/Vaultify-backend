@@ -67,6 +67,9 @@ const handleVideoShareFallback = async (req, res, next) => {
     // Check legacy VideoShare model first
     const isVideoShare = await VideoShare.findOne({ token, isActive: true });
     if (isVideoShare) {
+      if (isVideoShare.folderId) {
+        return next();
+      }
       return videoUploadController.resolvePublicShare(req, res, next);
     }
     // Check permanent share tokens stored on the Video model

@@ -350,6 +350,69 @@ const getSharedFile = async (req, res, next) => {
       .populate('folder_id');
 
     if (!sharedLink || (!sharedLink.file_id && !sharedLink.folder_id)) {
+      // Try VideoShare fallback
+      const VideoShare = require('../models/VideoShare');
+      const Video = require('../models/Video');
+      const VideoFolder = require('../models/VideoFolder');
+      const s3Service = require('../services/s3Service');
+
+      const videoShare = await VideoShare.findOne({ token: req.params.token, isActive: true })
+        .populate('videoId')
+        .populate('folderId');
+
+      if (!videoShare) {
+        return next(new NotFoundError('Shared link not found.'));
+      }
+
+      if (videoShare.expiresAt && new Date() > videoShare.expiresAt) {
+        return next(new ForbiddenError('This shared link has expired.'));
+      }
+
+      if (videoShare.videoId) {
+        const video = videoShare.videoId;
+        const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600);
+
+        await logActivity(video.ownerId, 'Download', { videoId: video._id, viaShare: videoShare.id, status: 'public_video' }, req.ip);
+
+        return res.status(200).json({
+          status: 'success',
+          data: {
+            type: 'file',
+            file_name: video.originalName || video.filename,
+            file_type: video.mimeType,
+            file_size: video.size,
+            download_url: presignedUrl,
+            createdAt: video.createdAt
+          }
+        });
+      } else if (videoShare.folderId) {
+        const folder = videoShare.folderId;
+        const videos = await Video.find({ folderId: folder._id, status: 'Active' });
+        const subfolders = await VideoFolder.find({ parentFolder: folder._id });
+
+        return res.status(200).json({
+          status: 'success',
+          data: {
+            type: 'folder',
+            file_name: folder.name,
+            files: videos.map(v => ({
+              id: v._id,
+              name: v.originalName || v.filename,
+              size: v.size,
+              mimeType: v.mimeType,
+              type: v.mimeType ? v.mimeType.split('/')[1] : 'file'
+            })),
+            folders: subfolders.map(f => {
+              const folderObj = f.toObject();
+              folderObj.id = folderObj._id.toString();
+              delete folderObj._id;
+              delete folderObj.__v;
+              return folderObj;
+            })
+          }
+        });
+      }
+
       return next(new NotFoundError('Shared link not found.'));
     }
 
