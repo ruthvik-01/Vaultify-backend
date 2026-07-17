@@ -345,6 +345,8 @@ const shareFile = async (req, res, next) => {
 
 const getSharedFile = async (req, res, next) => {
   try {
+    const disposition = req.query.disposition || 'attachment';
+
     const sharedLink = await SharedLink.findOne({ token: req.params.token })
       .populate('file_id')
       .populate('folder_id');
@@ -370,7 +372,7 @@ const getSharedFile = async (req, res, next) => {
 
       if (videoShare.videoId) {
         const video = videoShare.videoId;
-        const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600);
+        const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600, disposition);
 
         await logActivity(video.ownerId, 'Download', { videoId: video._id, viaShare: videoShare.id, status: 'public_video' }, req.ip);
 
@@ -422,7 +424,7 @@ const getSharedFile = async (req, res, next) => {
 
     if (sharedLink.file_id) {
       const file = sharedLink.file_id;
-      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600);
+      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600, disposition);
 
       await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public' }, req.ip);
 
@@ -465,6 +467,7 @@ const getSharedFile = async (req, res, next) => {
 const getSharedFolderFile = async (req, res, next) => {
   try {
     const { token, fileId } = req.params;
+    const disposition = req.query.disposition || 'attachment';
 
     // 1. Try SharedLink first
     const sharedLink = await SharedLink.findOne({ token }).populate('folder_id');
@@ -478,7 +481,7 @@ const getSharedFolderFile = async (req, res, next) => {
         return next(new NotFoundError('File not found in this shared folder.'));
       }
 
-      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600);
+      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600, disposition);
       await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public_folder' }, req.ip);
 
       return res.status(200).json({
@@ -508,7 +511,7 @@ const getSharedFolderFile = async (req, res, next) => {
         return next(new NotFoundError('Video not found in this shared folder.'));
       }
 
-      const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600);
+      const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600, disposition);
       await logActivity(video.ownerId, 'Download', { videoId: video._id, viaShare: videoShare.id, status: 'public_video_folder' }, req.ip);
 
       return res.status(200).json({
