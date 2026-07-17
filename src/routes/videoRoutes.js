@@ -20,6 +20,10 @@ router.post('/abort-upload', protect, validate(abortUploadSchema), videoUploadCo
 // Permanent Share link generation
 router.get('/:id/share', protect, videoUploadController.getShareLink);
 
+// Playback & Download endpoints (Authenticated)
+router.get('/:id/download', protect, videoUploadController.downloadVideo);
+router.get('/:id/preview', protect, videoUploadController.previewVideo);
+
 // Legacy/Backward Compatible upload routes (now pointing to the new S3 direct flow)
 router.post('/upload/initiate', protect, validate(initiateUploadSchema), videoUploadController.initiateUpload);
 router.post('/upload/complete', protect, validate(completeUploadSchema), videoUploadController.completeUpload);

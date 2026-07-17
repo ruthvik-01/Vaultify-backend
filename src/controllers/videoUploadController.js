@@ -1,6 +1,9 @@
 const videoMultipartService = require('../services/videoMultipartService');
 const shareVideoService = require('../services/shareVideoService');
+const s3Service = require('../services/s3Service');
+const Video = require('../models/Video');
 const logger = require('../config/logger');
+const { NotFoundError } = require('../utils/errors');
 
 const initiateUpload = async (req, res, next) => {
   try {
@@ -84,7 +87,6 @@ const resolvePublicShare = async (req, res, next) => {
     const { token } = req.params;
 
     // Check if the token belongs to a permanent public video share first
-    const Video = require('../models/Video');
     const video = await Video.findOne({ shareToken: token, isShared: true }).populate('ownerId', 'name');
 
     if (video) {
@@ -129,6 +131,61 @@ const resolvePublicShare = async (req, res, next) => {
   }
 };
 
+// ─── PLAYBACK & DOWNLOAD CONTROLLERS (AUTHENTICATED) ────────────────────────
+const downloadVideo = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const video = await Video.findOne({ _id: id, ownerId: userId });
+    if (!video) {
+      throw new NotFoundError('Video not found.');
+    }
+
+    const presignedUrl = await s3Service.getPreSignedDownloadUrl(
+      video.s3Key,
+      video.originalName,
+      3600
+    );
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        downloadUrl: presignedUrl
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const previewVideo = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const video = await Video.findOne({ _id: id, ownerId: userId });
+    if (!video) {
+      throw new NotFoundError('Video not found.');
+    }
+
+    const presignedUrl = await s3Service.getPreSignedDownloadUrl(
+      video.s3Key,
+      video.originalName,
+      3600
+    );
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        downloadUrl: presignedUrl
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ─── PERMANENT PUBLIC SHARING CONTROLLERS (NO PRESIGNED URLS) ─────────────────
 const createPermanentPublicShare = async (req, res, next) => {
   try {
@@ -156,7 +213,6 @@ const redirectPermanentPublicShare = async (req, res, next) => {
     }
     
     // Check if the token belongs to a permanent public video share
-    const Video = require('../models/Video');
     const video = await Video.findOne({ shareToken: token, isShared: true });
     
     if (video) {
@@ -168,7 +224,6 @@ const redirectPermanentPublicShare = async (req, res, next) => {
     const share = await VideoShare.findOne({ token, isActive: true }).populate('videoId');
     
     if (share && share.videoId) {
-      const s3Service = require('../services/s3Service');
       const presignedUrl = await s3Service.getPreSignedDownloadUrl(
         share.videoId.s3Key,
         share.videoId.originalName,
@@ -193,6 +248,8 @@ module.exports = {
   abortUpload,
   getShareLink,
   resolvePublicShare,
+  downloadVideo,
+  previewVideo,
   createPermanentPublicShare,
   redirectPermanentPublicShare
 };
