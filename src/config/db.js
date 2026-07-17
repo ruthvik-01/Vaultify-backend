@@ -2,6 +2,11 @@ const mongoose = require('mongoose');
 const logger = require('./logger');
 
 const connectDB = async () => {
+  if (mongoose.connection.readyState >= 1) {
+    logger.info('Reusing existing MongoDB connection.');
+    return;
+  }
+
   let mongoUri = process.env.MONGODB_URI;
 
   if (!mongoUri) {
