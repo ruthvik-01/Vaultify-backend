@@ -144,7 +144,7 @@ const downloadVideo = async (req, res, next) => {
 
     const presignedUrl = await s3Service.getPreSignedDownloadUrl(
       video.s3Key,
-      video.originalName,
+      video.originalName || video.filename,
       3600
     );
 
@@ -171,8 +171,9 @@ const previewVideo = async (req, res, next) => {
 
     const presignedUrl = await s3Service.getPreSignedDownloadUrl(
       video.s3Key,
-      video.originalName,
-      3600
+      video.originalName || video.filename,
+      3600,
+      'inline'
     );
 
     res.status(200).json({
