@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const s3Service = require('./s3Service');
 const Video = require('../models/Video');
 const logger = require('../config/logger');
@@ -8,7 +9,7 @@ const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB default
 
 const initiateVideoUpload = async (userId, { filename, mimeType, size, folderId }) => {
   try {
-    const videoId = crypto.randomUUID();
+    const videoId = new mongoose.Types.ObjectId().toString();
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
