@@ -60,11 +60,18 @@ app.use('/api/files', fileRoutes);
 app.use('/api/videos', videoRoutes);
 
 // Fallback logic for /api/share/:token to support standard documents and videos transparently
+const Video = require('./models/Video');
 const handleVideoShareFallback = async (req, res, next) => {
   const { token } = req.params;
   try {
+    // Check legacy VideoShare model first
     const isVideoShare = await VideoShare.findOne({ token, isActive: true });
     if (isVideoShare) {
+      return videoUploadController.resolvePublicShare(req, res, next);
+    }
+    // Check permanent share tokens stored on the Video model
+    const isPermShare = await Video.findOne({ shareToken: token, isShared: true });
+    if (isPermShare) {
       return videoUploadController.resolvePublicShare(req, res, next);
     }
   } catch (err) {
