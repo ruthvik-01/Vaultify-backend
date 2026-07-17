@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const videoMultipartService = require('../services/videoMultipartService');
 const shareVideoService = require('../services/shareVideoService');
 const s3Service = require('../services/s3Service');
@@ -87,7 +88,23 @@ const resolvePublicShare = async (req, res, next) => {
     const { token } = req.params;
 
     // Check if the token belongs to a permanent video share first
-    const video = await Video.findOne({ shareToken: token, isShared: true }).populate('ownerId', 'name');
+    let video = await Video.findOne({ shareToken: token, isShared: true }).populate('ownerId', 'name').catch(() => null);
+    if (!video) {
+      const raw = await Video.collection.findOne({ shareToken: token, isShared: true });
+      if (raw) {
+        const User = require('../models/User');
+        const owner = raw.ownerId ? await User.findById(raw.ownerId).catch(() => null) : null;
+        video = {
+          ...raw,
+          filename: raw.filename || raw.originalName,
+          size: raw.size,
+          mimeType: raw.mimeType,
+          createdAt: raw.createdAt,
+          s3Key: raw.s3Key,
+          ownerId: owner
+        };
+      }
+    }
 
     if (video) {
       // Generate a fresh presigned URL for streaming (valid 1 hour)
@@ -144,7 +161,10 @@ const downloadVideo = async (req, res, next) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const video = await Video.findOne({ _id: id, ownerId: userId });
+    let video = await Video.findOne({ _id: id, ownerId: userId }).catch(() => null);
+    if (!video) {
+      video = await Video.collection.findOne({ _id: id, ownerId: new mongoose.Types.ObjectId(userId) });
+    }
     if (!video) {
       throw new NotFoundError('Video not found.');
     }
@@ -171,7 +191,10 @@ const previewVideo = async (req, res, next) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const video = await Video.findOne({ _id: id, ownerId: userId });
+    let video = await Video.findOne({ _id: id, ownerId: userId }).catch(() => null);
+    if (!video) {
+      video = await Video.collection.findOne({ _id: id, ownerId: new mongoose.Types.ObjectId(userId) });
+    }
     if (!video) {
       throw new NotFoundError('Video not found.');
     }
@@ -221,7 +244,10 @@ const redirectPermanentPublicShare = async (req, res, next) => {
     }
     
     // Check if the token belongs to a permanent video share
-    const video = await Video.findOne({ shareToken: token, isShared: true });
+    let video = await Video.findOne({ shareToken: token, isShared: true }).catch(() => null);
+    if (!video) {
+      video = await Video.collection.findOne({ shareToken: token, isShared: true });
+    }
     
     if (video) {
       const presignedUrl = await s3Service.getPreSignedDownloadUrl(

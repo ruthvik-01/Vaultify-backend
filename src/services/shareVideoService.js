@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Video = require('../models/Video');
 const VideoShare = require('../models/VideoShare');
 const s3Service = require('./s3Service');
@@ -78,9 +79,34 @@ const resolveShareToken = async (token) => {
 // ─── PERMANENT PUBLIC SHARING ─────────────────────────────────────────────────
 const createPermanentPublicShare = async (userId, videoId, hostUrl) => {
   // Validate ownership
-  const video = await Video.findOne({ _id: videoId, ownerId: userId });
+  let video = await Video.findOne({ _id: videoId, ownerId: userId }).catch(() => null);
+  
   if (!video) {
-    throw new NotFoundError('Video not found or access denied.');
+    const raw = await Video.collection.findOne({ _id: videoId, ownerId: new mongoose.Types.ObjectId(userId) });
+    if (!raw) {
+      throw new NotFoundError('Video not found or access denied.');
+    }
+    
+    // If already shared, return the existing permanent share URL
+    if (raw.isShared && raw.shareToken) {
+      const cleanHost = hostUrl.replace(/\/$/, '');
+      return {
+        shareUrl: `${cleanHost}/share/${raw.shareToken}`
+      };
+    }
+
+    const shareToken = crypto.randomBytes(6).toString('base64url');
+    await Video.collection.updateOne(
+      { _id: videoId },
+      { $set: { shareToken, isShared: true } }
+    );
+
+    logger.info(`Share Link Created: Permanent share link generated for legacy video ${videoId} by user ${userId}`);
+
+    const cleanHost = hostUrl.replace(/\/$/, '');
+    return {
+      shareUrl: `${cleanHost}/share/${shareToken}`
+    };
   }
 
   // If already shared, return the existing permanent share URL

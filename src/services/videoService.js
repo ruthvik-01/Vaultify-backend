@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Video = require('../models/Video');
 const { deleteFile } = require('./s3Service');
 const { NotFoundError, UnauthorizedError } = require('../utils/errors');
@@ -7,9 +8,17 @@ const listVideos = async (ownerId, folderId = null) => {
 };
 
 const renameVideo = async (ownerId, videoId, newName) => {
-  const video = await Video.findOne({ _id: videoId, ownerId });
+  let video = await Video.findOne({ _id: videoId, ownerId }).catch(() => null);
   if (!video) {
-    throw new NotFoundError('Video not found or access denied.');
+    const raw = await Video.collection.findOne({ _id: videoId, ownerId: new mongoose.Types.ObjectId(ownerId) });
+    if (!raw) {
+      throw new NotFoundError('Video not found or access denied.');
+    }
+    await Video.collection.updateOne(
+      { _id: videoId },
+      { $set: { filename: newName } }
+    );
+    return raw;
   }
   video.filename = newName;
   await video.save();
@@ -17,9 +26,17 @@ const renameVideo = async (ownerId, videoId, newName) => {
 };
 
 const moveVideo = async (ownerId, videoId, targetFolderId) => {
-  const video = await Video.findOne({ _id: videoId, ownerId });
+  let video = await Video.findOne({ _id: videoId, ownerId }).catch(() => null);
   if (!video) {
-    throw new NotFoundError('Video not found or access denied.');
+    const raw = await Video.collection.findOne({ _id: videoId, ownerId: new mongoose.Types.ObjectId(ownerId) });
+    if (!raw) {
+      throw new NotFoundError('Video not found or access denied.');
+    }
+    await Video.collection.updateOne(
+      { _id: videoId },
+      { $set: { folderId: targetFolderId ? new mongoose.Types.ObjectId(targetFolderId) : null } }
+    );
+    return raw;
   }
   video.folderId = targetFolderId || null;
   await video.save();
@@ -27,7 +44,10 @@ const moveVideo = async (ownerId, videoId, targetFolderId) => {
 };
 
 const deleteVideo = async (ownerId, videoId) => {
-  const video = await Video.findOne({ _id: videoId, ownerId });
+  let video = await Video.findOne({ _id: videoId, ownerId }).catch(() => null);
+  if (!video) {
+    video = await Video.collection.findOne({ _id: videoId, ownerId: new mongoose.Types.ObjectId(ownerId) });
+  }
   if (!video) {
     throw new NotFoundError('Video not found or access denied.');
   }
@@ -41,7 +61,8 @@ const deleteVideo = async (ownerId, videoId) => {
   }
 
   // Delete from DB
-  await Video.deleteOne({ _id: videoId });
+  await Video.deleteOne({ _id: videoId }).catch(() => null);
+  await Video.collection.deleteOne({ _id: videoId });
   return video;
 };
 
