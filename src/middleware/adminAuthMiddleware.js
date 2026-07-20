@@ -1,0 +1,57 @@
+const jwt = require('jsonwebtoken');
+const Admin = require('../models/Admin');
+
+/**
+ * Middleware to protect Admin endpoints.
+ * Verifies JWT token and checks if user has Admin authorization.
+ */
+module.exports = async function requireAdminAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized: Admin authentication token required.'
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const secret = process.env.JWT_SECRET || 'vaultify_jwt_secret_dev_key_2026';
+
+    const decoded = jwt.verify(token, secret);
+
+    const adminUser = await Admin.findById(decoded.id)
+      .select('_id email role name session_timeout last_activity')
+      .lean()
+      .catch(() => null);
+
+    if (!adminUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Admin privileges required to access this resource.'
+      });
+    }
+
+    // Check inactivity session timeout
+    if (adminUser.session_timeout && adminUser.last_activity) {
+      const elapsedMinutes = (Date.now() - new Date(adminUser.last_activity).getTime()) / (60 * 1000);
+      if (elapsedMinutes > adminUser.session_timeout) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: Session expired due to inactivity. Please log in again.'
+        });
+      }
+    }
+
+    // Update last activity timestamp asynchronously without blocking response
+    Admin.updateOne({ _id: adminUser._id }, { $set: { last_activity: new Date() } }).catch(() => {});
+
+    req.admin = adminUser;
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized: Invalid or expired admin session token.'
+    });
+  }
+};

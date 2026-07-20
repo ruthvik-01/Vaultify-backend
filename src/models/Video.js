@@ -20,6 +20,10 @@ const videoSchema = new mongoose.Schema({
 
 // Indexing for performance
 videoSchema.index({ ownerId: 1, folderId: 1 });
+videoSchema.index({ ownerId: 1, createdAt: -1 });
+videoSchema.index({ folderId: 1, createdAt: -1 });
 videoSchema.index({ status: 1 });
+videoSchema.index({ createdAt: -1 });
+videoSchema.index({ size: -1 });
 
 module.exports = mongoose.model('Video', videoSchema);

@@ -20,4 +20,7 @@ const userSchema = new mongoose.Schema({
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
 
+// Index for sorting/filtering users
+userSchema.index({ created_at: -1 });
+
 module.exports = mongoose.model('User', userSchema);

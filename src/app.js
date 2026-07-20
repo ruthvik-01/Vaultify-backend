@@ -16,6 +16,8 @@ const videoController = require('./controllers/videoController');
 const videoUploadController = require('./controllers/videoUploadController');
 const VideoShare = require('./models/VideoShare');
 
+const adminRoutes = require('./routes/adminRoutes');
+
 const app = express();
 
 app.use(helmet());
@@ -58,6 +60,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/folders', folderRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/videos', videoRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Fallback logic for /api/share/:token to support standard documents and videos transparently
 const Video = require('./models/Video');

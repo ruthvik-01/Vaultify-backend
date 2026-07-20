@@ -13,4 +13,11 @@ const fileSchema = new mongoose.Schema({
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
 
+// Indexes for query performance optimization
+fileSchema.index({ user_id: 1, created_at: -1 });
+fileSchema.index({ folder_id: 1, created_at: -1 });
+fileSchema.index({ file_type: 1, created_at: -1 });
+fileSchema.index({ file_size: -1 });
+fileSchema.index({ created_at: -1 });
+
 module.exports = mongoose.model('File', fileSchema);
