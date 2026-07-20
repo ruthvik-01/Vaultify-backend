@@ -23,7 +23,7 @@ const initiateUpload = async (req, res, next) => {
 const completeUpload = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { videoId, uploadId, parts, folderId, filename, mimeType, size } = req.body;
+    const { videoId, uploadId, parts, folderId, filename, mimeType, size, uploadBatchId } = req.body;
     
     const result = await videoMultipartService.completeVideoUpload(userId, {
       videoId,
@@ -33,7 +33,8 @@ const completeUpload = async (req, res, next) => {
       folderId,
       filename,
       mimeType,
-      size
+      size,
+      uploadBatchId
     });
 
     res.status(200).json({

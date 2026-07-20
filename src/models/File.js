@@ -9,7 +9,8 @@ const fileSchema = new mongoose.Schema({
   file_size: { type: Number, required: true },
   s3_key: { type: String, required: true },
   is_favorite: { type: Boolean, default: false },
-  is_work_submission: { type: Boolean, default: false }
+  is_work_submission: { type: Boolean, default: false },
+  uploadBatchId: { type: String, default: null }
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });

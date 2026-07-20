@@ -4,7 +4,8 @@ const folderSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   folder_name: { type: String, required: true },
   parent_folder_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Folder', default: null },
-  folder_type: { type: String, enum: ['normal', 'work'], default: 'normal' }
+  folder_type: { type: String, enum: ['normal', 'work'], default: 'normal' },
+  uploadBatchId: { type: String, default: null }
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });

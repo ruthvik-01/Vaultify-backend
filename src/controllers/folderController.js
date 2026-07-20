@@ -10,7 +10,7 @@ const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/err
  */
 const createFolder = async (req, res, next) => {
   try {
-    const { folder_name, parent_folder_id } = req.body;
+    const { folder_name, parent_folder_id, uploadBatchId } = req.body;
     const userId = req.user.id;
 
     // Check parent folder ownership if parent_folder_id is provided
@@ -27,7 +27,8 @@ const createFolder = async (req, res, next) => {
     const folder = await Folder.create({
       user_id: userId,
       folder_name,
-      parent_folder_id: parent_folder_id || null
+      parent_folder_id: parent_folder_id || null,
+      uploadBatchId: uploadBatchId || null
     });
 
     res.status(201).json({

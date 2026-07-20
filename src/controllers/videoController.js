@@ -114,7 +114,7 @@ const abortUpload = async (req, res, next) => {
 // ─── VIDEO FOLDER CONTROLLERS ──────────────────────────────────────────────
 const createFolder = async (req, res, next) => {
   try {
-    const { name, parentFolder } = req.body;
+    const { name, parentFolder, uploadBatchId } = req.body;
     const ownerId = req.user.id;
 
     if (!name) {
@@ -136,7 +136,8 @@ const createFolder = async (req, res, next) => {
       ownerId,
       name,
       parentFolder: parentFolder || null,
-      path
+      path,
+      uploadBatchId: uploadBatchId || null
     });
 
     res.status(201).json({

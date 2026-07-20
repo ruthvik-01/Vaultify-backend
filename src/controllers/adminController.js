@@ -326,7 +326,7 @@ exports.getStudents = async (req, res) => {
                 is_work_submission: true
               }
             },
-            { $project: { file_size: 1, created_at: 1 } }
+            { $project: { file_size: 1, created_at: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'files'
         }
@@ -347,7 +347,7 @@ exports.getStudents = async (req, res) => {
                 is_work_submission: true
               }
             },
-            { $project: { size: 1, createdAt: 1 } }
+            { $project: { size: 1, createdAt: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'videos'
         }
@@ -367,7 +367,7 @@ exports.getStudents = async (req, res) => {
                 }
               }
             },
-            { $project: { _id: 1 } }
+            { $project: { _id: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'folders'
         }
@@ -390,10 +390,13 @@ exports.getStudents = async (req, res) => {
             ]
           },
           totalUploads: {
-            $add: [
-              { $size: '$files' },
-              { $size: '$videos' }
-            ]
+            $size: {
+              $setUnion: [
+                { $map: { input: '$files', as: 'f', in: '$$f.uploadBatchId' } },
+                { $map: { input: '$videos', as: 'v', in: '$$v.uploadBatchId' } },
+                { $map: { input: '$folders', as: 'fd', in: '$$fd.uploadBatchId' } }
+              ]
+            }
           },
           lastUpload: {
             $max: [
@@ -574,7 +577,7 @@ exports.getTeams = async (req, res) => {
                 }
               }
             },
-            { $project: { _id: 1 } }
+            { $project: { _id: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'user'
         }
@@ -596,7 +599,7 @@ exports.getTeams = async (req, res) => {
                 is_work_submission: true
               }
             },
-            { $project: { file_size: 1, created_at: 1 } }
+            { $project: { file_size: 1, created_at: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'files'
         }
@@ -617,7 +620,7 @@ exports.getTeams = async (req, res) => {
                 is_work_submission: true
               }
             },
-            { $project: { size: 1, createdAt: 1 } }
+            { $project: { size: 1, createdAt: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'videos'
         }
@@ -637,7 +640,7 @@ exports.getTeams = async (req, res) => {
                 }
               }
             },
-            { $project: { _id: 1 } }
+            { $project: { _id: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'folders'
         }
@@ -660,10 +663,13 @@ exports.getTeams = async (req, res) => {
             ]
           },
           totalUploads: {
-            $add: [
-              { $size: '$files' },
-              { $size: '$videos' }
-            ]
+            $size: {
+              $setUnion: [
+                { $map: { input: '$files', as: 'f', in: '$$f.uploadBatchId' } },
+                { $map: { input: '$videos', as: 'v', in: '$$v.uploadBatchId' } },
+                { $map: { input: '$folders', as: 'fd', in: '$$fd.uploadBatchId' } }
+              ]
+            }
           },
           lastUpload: {
             $max: [
@@ -743,7 +749,7 @@ exports.getTeamByName = async (req, res) => {
                 }
               }
             },
-            { $project: { _id: 1 } }
+            { $project: { _id: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'user'
         }
@@ -798,7 +804,13 @@ exports.getTeamByName = async (req, res) => {
           email: '$email',
           team: '$team',
           totalUploads: {
-            $add: [{ $size: '$files' }, { $size: '$videos' }]
+            $size: {
+              $setUnion: [
+                { $map: { input: '$files', as: 'f', in: '$$f.uploadBatchId' } },
+                { $map: { input: '$videos', as: 'v', in: '$$v.uploadBatchId' } },
+                { $map: { input: '$folders', as: 'fd', in: '$$fd.uploadBatchId' } }
+              ]
+            }
           },
           storageUsed: {
             $add: [
@@ -1413,7 +1425,7 @@ exports.getAnalytics = async (req, res) => {
                   }
                 }
               },
-              { $project: { _id: 1 } }
+              { $project: { _id: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
             ],
             as: 'user'
           }

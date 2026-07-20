@@ -14,7 +14,8 @@ const videoSchema = new mongoose.Schema({
   shareToken: { type: String, default: null, index: true },
   publicUrl: { type: String, default: null },
   isShared: { type: Boolean, default: false },
-  is_work_submission: { type: Boolean, default: false }
+  is_work_submission: { type: Boolean, default: false },
+  uploadBatchId: { type: String, default: null }
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });
