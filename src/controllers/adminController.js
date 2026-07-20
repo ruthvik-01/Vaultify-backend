@@ -147,7 +147,7 @@ exports.getDashboardStats = async (req, res) => {
     const emails = activeStudents.map(s => s.email.toLowerCase());
     
     const monitoredUsers = emails.length > 0
-      ? await User.find({ email: { $in: emails } }).select('_id email name').lean()
+      ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id email name').lean()
       : [];
 
     const userIds = monitoredUsers.map(u => u._id);
@@ -292,38 +292,82 @@ exports.getStudents = async (req, res) => {
       {
         $lookup: {
           from: 'users',
-          localField: 'email',
-          foreignField: 'email',
-          as: 'user',
-          pipeline: [{ $project: { _id: 1, email: 1, name: 1 } }]
+          let: { studentEmail: '$email' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $eq: [
+                    { $toLower: '$email' },
+                    { $toLower: '$$studentEmail' }
+                  ]
+                }
+              }
+            },
+            { $project: { _id: 1, email: 1, name: 1 } }
+          ],
+          as: 'user'
         }
       },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'files',
-          localField: 'user._id',
-          foreignField: 'user_id',
-          as: 'files',
-          pipeline: [{ $project: { file_size: 1, created_at: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$user_id', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { file_size: 1, created_at: 1 } }
+          ],
+          as: 'files'
         }
       },
       {
         $lookup: {
           from: 'videos',
-          localField: 'user._id',
-          foreignField: 'ownerId',
-          as: 'videos',
-          pipeline: [{ $project: { size: 1, createdAt: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$ownerId', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { size: 1, createdAt: 1 } }
+          ],
+          as: 'videos'
         }
       },
       {
         $lookup: {
           from: 'folders',
-          localField: 'user._id',
-          foreignField: 'user_id',
-          as: 'folders',
-          pipeline: [{ $project: { _id: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$user_id', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { _id: 1 } }
+          ],
+          as: 'folders'
         }
       },
       {
@@ -410,7 +454,7 @@ exports.getStudentById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Monitored student not found.' });
     }
 
-    const user = await User.findOne({ email: s.email.toLowerCase() }).select('_id email name').lean();
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${s.email}$`, 'i') } }).select('_id email name').lean();
 
     let fileCount = 0;
     let videoCount = 0;
@@ -516,38 +560,82 @@ exports.getTeams = async (req, res) => {
       {
         $lookup: {
           from: 'users',
-          localField: 'email',
-          foreignField: 'email',
-          as: 'user',
-          pipeline: [{ $project: { _id: 1 } }]
+          let: { studentEmail: '$email' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $eq: [
+                    { $toLower: '$email' },
+                    { $toLower: '$$studentEmail' }
+                  ]
+                }
+              }
+            },
+            { $project: { _id: 1 } }
+          ],
+          as: 'user'
         }
       },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'files',
-          localField: 'user._id',
-          foreignField: 'user_id',
-          as: 'files',
-          pipeline: [{ $project: { file_size: 1, created_at: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$user_id', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { file_size: 1, created_at: 1 } }
+          ],
+          as: 'files'
         }
       },
       {
         $lookup: {
           from: 'videos',
-          localField: 'user._id',
-          foreignField: 'ownerId',
-          as: 'videos',
-          pipeline: [{ $project: { size: 1, createdAt: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$ownerId', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { size: 1, createdAt: 1 } }
+          ],
+          as: 'videos'
         }
       },
       {
         $lookup: {
           from: 'folders',
-          localField: 'user._id',
-          foreignField: 'user_id',
-          as: 'folders',
-          pipeline: [{ $project: { _id: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$user_id', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { _id: 1 } }
+          ],
+          as: 'folders'
         }
       },
       {
@@ -556,7 +644,7 @@ exports.getTeams = async (req, res) => {
           studentName: '$studentName',
           name: '$studentName',
           email: '$email',
-          team: '$team',
+          team: { $ifNull: ['$team', 'General'] },
           active: { $ifNull: ['$active', true] },
           uploadedFilesCount: { $size: '$files' },
           uploadedVideosCount: { $size: '$videos' },
@@ -584,8 +672,8 @@ exports.getTeams = async (req, res) => {
       },
       {
         $group: {
-          _id: { $toLower: '$team' },
-          name: { $first: '$team' },
+          _id: { $toLower: { $ifNull: ['$team', 'General'] } },
+          name: { $first: { $ifNull: ['$team', 'General'] } },
           studentCount: { $sum: 1 },
           storageUsed: { $sum: '$storageUsed' },
           totalUploads: { $sum: '$totalUploads' },
@@ -601,7 +689,7 @@ exports.getTeams = async (req, res) => {
           id: {
             $concat: [
               'team_',
-              { $replaceAll: { input: { $toLower: '$name' }, find: ' ', replacement: '' } }
+              { $replaceAll: { input: { $toLower: { $ifNull: ['$name', 'General'] } }, find: ' ', replacement: '' } }
             ]
           },
           name: 1,
@@ -639,29 +727,62 @@ exports.getTeamByName = async (req, res) => {
       {
         $lookup: {
           from: 'users',
-          localField: 'email',
-          foreignField: 'email',
-          as: 'user',
-          pipeline: [{ $project: { _id: 1 } }]
+          let: { studentEmail: '$email' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $eq: [
+                    { $toLower: '$email' },
+                    { $toLower: '$$studentEmail' }
+                  ]
+                }
+              }
+            },
+            { $project: { _id: 1 } }
+          ],
+          as: 'user'
         }
       },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'files',
-          localField: 'user._id',
-          foreignField: 'user_id',
-          as: 'files',
-          pipeline: [{ $project: { file_size: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$user_id', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { file_size: 1 } }
+          ],
+          as: 'files'
         }
       },
       {
         $lookup: {
           from: 'videos',
-          localField: 'user._id',
-          foreignField: 'ownerId',
-          as: 'videos',
-          pipeline: [{ $project: { size: 1 } }]
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$ownerId', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { size: 1 } }
+          ],
+          as: 'videos'
         }
       },
       {
@@ -831,10 +952,21 @@ exports.getUploads = async (req, res) => {
       {
         $lookup: {
           from: 'admin_students',
-          localField: 'user.email',
-          foreignField: 'email',
-          as: 'studentInfo',
-          pipeline: [{ $project: { studentName: 1, team: 1 } }]
+          let: { userEmail: '$user.email' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $eq: [
+                    { $toLower: '$email' },
+                    { $toLower: '$$userEmail' }
+                  ]
+                }
+              }
+            },
+            { $project: { studentName: 1, team: 1 } }
+          ],
+          as: 'studentInfo'
         }
       },
       { $unwind: { path: '$studentInfo', preserveNullAndEmptyArrays: true } },
@@ -843,7 +975,7 @@ exports.getUploads = async (req, res) => {
           id: { $toString: '$_id' },
           fileName: '$file_name',
           folder: { $ifNull: ['$folder_name', 'General'] },
-          student: { $ifNull: ['$studentInfo.studentName', '$user.name', 'Monitored Student'] },
+          student: { $ifNull: ['$studentInfo.studentName', { $ifNull: ['$user.name', 'Monitored Student'] }] },
           studentEmail: { $ifNull: ['$user.email', ''] },
           team: { $ifNull: ['$studentInfo.team', 'General'] },
           size: '$file_size',
@@ -868,19 +1000,30 @@ exports.getUploads = async (req, res) => {
             {
               $lookup: {
                 from: 'admin_students',
-                localField: 'user.email',
-                foreignField: 'email',
-                as: 'studentInfo',
-                pipeline: [{ $project: { studentName: 1, team: 1 } }]
+                let: { userEmail: '$user.email' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $eq: [
+                          { $toLower: '$email' },
+                          { $toLower: '$$userEmail' }
+                        ]
+                      }
+                    }
+                  },
+                  { $project: { studentName: 1, team: 1 } }
+                ],
+                as: 'studentInfo'
               }
             },
             { $unwind: { path: '$studentInfo', preserveNullAndEmptyArrays: true } },
             {
               $project: {
                 id: { $toString: '$_id' },
-                fileName: { $ifNull: ['$title', '$originalName', '$filename', 'Video Submissions'] },
+                fileName: { $ifNull: ['$title', { $ifNull: ['$originalName', { $ifNull: ['$filename', 'Video Submissions'] }] }] },
                 folder: { $literal: 'Videos' },
-                student: { $ifNull: ['$studentInfo.studentName', '$user.name', 'Monitored Student'] },
+                student: { $ifNull: ['$studentInfo.studentName', { $ifNull: ['$user.name', 'Monitored Student'] }] },
                 studentEmail: { $ifNull: ['$user.email', ''] },
                 team: { $ifNull: ['$studentInfo.team', 'General'] },
                 size: '$size',
@@ -982,10 +1125,7 @@ exports.deleteTeamUploads = async (req, res) => {
     const emails = students.map(s => s.email.toLowerCase());
 
     const users = await User.find({
-      $or: [
-        { email: { $in: emails } },
-        { team: { $regex: new RegExp(`^${teamName}$`, 'i') } }
-      ]
+      email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) }
     }).select('_id').lean();
 
     const userIds = users.map(u => u._id);
@@ -1033,7 +1173,7 @@ exports.getActivityFeed = async (req, res) => {
     const emails = rawStudents.map(s => s.email.toLowerCase());
     
     const monitoredUsers = emails.length > 0
-      ? await User.find({ email: { $in: emails } }).select('_id email name').lean()
+      ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id email name').lean()
       : [];
     const userIds = monitoredUsers.map(u => u._id);
 
@@ -1097,7 +1237,7 @@ exports.getAnalytics = async (req, res) => {
     const rawStudents = await AdminStudent.find({ active: true }).select('email studentName team _id').lean();
     const emails = rawStudents.map(s => s.email.toLowerCase());
     const monitoredUsers = emails.length > 0
-      ? await User.find({ email: { $in: emails } }).select('_id email name').lean()
+      ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id email name').lean()
       : [];
     const userIds = monitoredUsers.map(u => u._id);
 
@@ -1204,29 +1344,62 @@ exports.getAnalytics = async (req, res) => {
         {
           $lookup: {
             from: 'users',
-            localField: 'email',
-            foreignField: 'email',
-            as: 'user',
-            pipeline: [{ $project: { _id: 1 } }]
+            let: { studentEmail: '$email' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $eq: [
+                      { $toLower: '$email' },
+                      { $toLower: '$$studentEmail' }
+                    ]
+                  }
+                }
+              },
+              { $project: { _id: 1 } }
+            ],
+            as: 'user'
           }
         },
         { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
         {
           $lookup: {
             from: 'files',
-            localField: 'user._id',
-            foreignField: 'user_id',
-            as: 'files',
-            pipeline: [{ $project: { file_size: 1 } }]
+            let: { userId: '$user._id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $ne: ['$$userId', null] },
+                      { $eq: ['$user_id', '$$userId'] }
+                    ]
+                  }
+                }
+              },
+              { $project: { file_size: 1 } }
+            ],
+            as: 'files'
           }
         },
         {
           $lookup: {
             from: 'videos',
-            localField: 'user._id',
-            foreignField: 'ownerId',
-            as: 'videos',
-            pipeline: [{ $project: { size: 1 } }]
+            let: { userId: '$user._id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $ne: ['$$userId', null] },
+                      { $eq: ['$ownerId', '$$userId'] }
+                    ]
+                  }
+                }
+              },
+              { $project: { size: 1 } }
+            ],
+            as: 'videos'
           }
         },
         {
@@ -1345,7 +1518,7 @@ exports.getAnalytics = async (req, res) => {
     });
     largestVideos.forEach(v => {
       const user = userMap[v.ownerId.toString()];
-      const student = user ? studentMap[v.ownerId.toString() ? userMap[v.ownerId.toString()].email.toLowerCase() : ''] : null;
+      const student = user ? studentMap[user.email.toLowerCase()] : null;
       mergedLargest.push({
         fileName: v.originalName || v.filename || 'Video Submissions',
         student: student?.studentName || user?.name || 'Student',
@@ -1571,7 +1744,7 @@ exports.exportData = async (req, res) => {
     const emails = students.map(s => s.email.toLowerCase());
     
     const users = emails.length > 0 
-      ? await User.find({ email: { $in: emails } }).select('_id').lean()
+      ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id').lean()
       : [];
     const userIds = users.map(u => u._id);
 
