@@ -173,14 +173,14 @@ exports.getDashboardStats = async (req, res) => {
       videoTodayCount
     ] = await Promise.all([
       File.aggregate([
-        { $match: { user_id: { $in: userIds } } },
+        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
         { $group: { _id: null, totalSize: { $sum: '$file_size' }, count: { $sum: 1 } } }
       ]),
       Video.aggregate([
         { $match: { ownerId: { $in: userIds } } },
         { $group: { _id: null, totalSize: { $sum: '$size' }, count: { $sum: 1 } } }
       ]),
-      File.find({ user_id: { $in: userIds } })
+      File.find({ user_id: { $in: userIds }, is_work_submission: true })
         .select('user_id file_name original_name file_size created_at file_type s3_key')
         .sort({ created_at: -1 })
         .limit(10)
@@ -190,7 +190,7 @@ exports.getDashboardStats = async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(10)
         .lean(),
-      File.countDocuments({ user_id: { $in: userIds }, created_at: { $gte: startOfToday } }),
+      File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfToday } }),
       Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: startOfToday } })
     ]);
 
@@ -322,7 +322,8 @@ exports.getStudents = async (req, res) => {
                     { $ne: ['$$userId', null] },
                     { $eq: ['$user_id', '$$userId'] }
                   ]
-                }
+                },
+                is_work_submission: true
               }
             },
             { $project: { file_size: 1, created_at: 1 } }
@@ -465,7 +466,7 @@ exports.getStudentById = async (req, res) => {
 
     if (user) {
       const [files, videos, folderCountRes] = await Promise.all([
-        File.find({ user_id: user._id })
+        File.find({ user_id: user._id, is_work_submission: true })
           .select('_id file_name folder_name file_size created_at file_type')
           .sort({ created_at: -1 })
           .lean(),
@@ -590,7 +591,8 @@ exports.getTeams = async (req, res) => {
                     { $ne: ['$$userId', null] },
                     { $eq: ['$user_id', '$$userId'] }
                   ]
-                }
+                },
+                is_work_submission: true
               }
             },
             { $project: { file_size: 1, created_at: 1 } }
@@ -757,7 +759,8 @@ exports.getTeamByName = async (req, res) => {
                     { $ne: ['$$userId', null] },
                     { $eq: ['$user_id', '$$userId'] }
                   ]
-                }
+                },
+                is_work_submission: true
               }
             },
             { $project: { file_size: 1 } }
@@ -939,6 +942,7 @@ exports.getUploads = async (req, res) => {
     }
 
     const aggregationPipeline = [
+      { $match: { is_work_submission: true } },
       {
         $lookup: {
           from: 'users',
@@ -1320,7 +1324,7 @@ exports.getAnalytics = async (req, res) => {
 
       dayPromises.push(
         Promise.all([
-          File.countDocuments({ user_id: { $in: userIds }, created_at: { $gte: dayStart, $lt: dayEnd } }),
+          File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: dayStart, $lt: dayEnd } }),
           Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: dayStart, $lt: dayEnd } })
         ]).then(([fc, vc]) => ({ day: dayName, uploads: fc + vc }))
       );
@@ -1334,7 +1338,7 @@ exports.getAnalytics = async (req, res) => {
 
       weekPromises.push(
         Promise.all([
-          File.countDocuments({ user_id: { $in: userIds }, created_at: { $gte: start, $lt: end } }),
+          File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: start, $lt: end } }),
           Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: start, $lt: end } })
         ]).then(([fc, vc]) => ({ week: weekLabel, uploads: fc + vc }))
       );
@@ -1351,7 +1355,7 @@ exports.getAnalytics = async (req, res) => {
 
       monthPromises.push(
         Promise.all([
-          File.countDocuments({ user_id: { $in: userIds }, created_at: { $gte: startOfMonth, $lte: endOfMonth } }),
+          File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfMonth, $lte: endOfMonth } }),
           Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: startOfMonth, $lte: endOfMonth } })
         ]).then(([fc, vc]) => ({ month: mName, uploads: fc + vc }))
       );
@@ -1403,8 +1407,7 @@ exports.getAnalytics = async (req, res) => {
             as: 'user'
           }
         },
-        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-        {
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },        {
           $lookup: {
             from: 'files',
             let: { userId: '$user._id' },
@@ -1416,7 +1419,8 @@ exports.getAnalytics = async (req, res) => {
                       { $ne: ['$$userId', null] },
                       { $eq: ['$user_id', '$$userId'] }
                     ]
-                  }
+                  },
+                  is_work_submission: true
                 }
               },
               { $project: { file_size: 1 } }
@@ -1462,7 +1466,7 @@ exports.getAnalytics = async (req, res) => {
         }
       ]),
       File.aggregate([
-        { $match: { user_id: { $in: userIds } } },
+        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
         { $group: { _id: '$user_id', count: { $sum: 1 }, size: { $sum: '$file_size' } } }
       ]),
       Video.aggregate([
@@ -1470,14 +1474,14 @@ exports.getAnalytics = async (req, res) => {
         { $group: { _id: '$ownerId', count: { $sum: 1 }, size: { $sum: '$size' } } }
       ]),
       File.aggregate([
-        { $match: { user_id: { $in: userIds } } },
+        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
         { $group: { _id: null, totalSize: { $sum: '$file_size' }, count: { $sum: 1 } } }
       ]),
       Video.aggregate([
         { $match: { ownerId: { $in: userIds } } },
         { $group: { _id: null, totalSize: { $sum: '$size' }, count: { $sum: 1 } } }
       ]),
-      File.find({ user_id: { $in: userIds } })
+      File.find({ user_id: { $in: userIds }, is_work_submission: true })
         .select('user_id file_name file_size created_at file_type')
         .sort({ file_size: -1 })
         .limit(10)
@@ -1488,16 +1492,16 @@ exports.getAnalytics = async (req, res) => {
         .limit(10)
         .lean(),
       File.aggregate([
-        { $match: { user_id: { $in: userIds } } },
+        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
         { $group: { _id: '$file_type', count: { $sum: 1 } } }
       ]),
       Video.countDocuments({ ownerId: { $in: userIds } }),
       Promise.all([
-        File.countDocuments({ user_id: { $in: userIds }, created_at: { $gte: startOfThisWeek } }),
+        File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfThisWeek } }),
         Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: startOfThisWeek } })
       ]),
       Promise.all([
-        File.countDocuments({ user_id: { $in: userIds }, created_at: { $gte: startOfPriorWeek, $lt: startOfThisWeek } }),
+        File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfPriorWeek, $lt: startOfThisWeek } }),
         Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: startOfPriorWeek, $lt: startOfThisWeek } })
       ])
     ]);
@@ -1791,7 +1795,7 @@ exports.exportData = async (req, res) => {
     const userIds = users.map(u => u._id);
 
     const [files, videos, logs] = await Promise.all([
-      File.find({ user_id: { $in: userIds } }).select('_id file_name file_type file_size created_at').lean(),
+      File.find({ user_id: { $in: userIds }, is_work_submission: true }).select('_id file_name file_type file_size created_at').lean(),
       Video.find({ ownerId: { $in: userIds } }).select('_id originalName filename size createdAt').lean(),
       ActivityLog.find({ user_id: { $in: userIds } }).select('_id action details created_at').lean()
     ]);

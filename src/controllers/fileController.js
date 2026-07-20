@@ -45,6 +45,7 @@ const serializeFile = (file) => ({
   file_size: file.file_size,
   s3_key: file.s3_key,
   is_favorite: file.is_favorite,
+  is_work_submission: file.is_work_submission || false,
   created_at: file.created_at,
   updated_at: file.updated_at
 });
@@ -72,6 +73,25 @@ const ensureOwnedFolder = async (folderId, userId) => {
   }
 
   return folder;
+};
+
+/**
+ * Check if a folder (or any of its ancestors) is a Work folder.
+ * Walks up the folder tree via parent_folder_id.
+ */
+const isWorkFolder = async (folderId) => {
+  if (!folderId) return false;
+  let currentId = folderId;
+  // Safety limit to prevent infinite loops on corrupted data
+  let depth = 0;
+  while (currentId && depth < 20) {
+    const folder = await Folder.findById(currentId).select('folder_type parent_folder_id').lean();
+    if (!folder) return false;
+    if (folder.folder_type === 'work') return true;
+    currentId = folder.parent_folder_id;
+    depth++;
+  }
+  return false;
 };
 
 const findOwnedFile = async (fileId, userId) => {
@@ -105,6 +125,9 @@ const uploadFileController = async (req, res, next) => {
 
     await uploadFile(file.buffer, s3Key, file.mimetype);
 
+    // Check if the target folder is inside the Work folder tree
+    const workFlag = folder ? await isWorkFolder(folder.id) : false;
+
     const createdFile = await File.create({
       user_id: userId,
       folder_id: folder ? folder.id : null,
@@ -112,7 +135,8 @@ const uploadFileController = async (req, res, next) => {
       original_name: file.originalname,
       file_type: file.mimetype,
       file_size: file.size,
-      s3_key: s3Key
+      s3_key: s3Key,
+      is_work_submission: workFlag
     });
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name }, req.ip);
@@ -219,6 +243,8 @@ const moveFile = async (req, res, next) => {
     const oldFolder = file.folder_id ? file.folder_id.toString() : null;
 
     file.folder_id = folder ? folder.id : null;
+    // Recalculate work submission flag based on new folder
+    file.is_work_submission = folder ? await isWorkFolder(folder.id) : false;
     await file.save();
 
     await logActivity(
@@ -709,6 +735,9 @@ const completeUploadController = async (req, res, next) => {
     // Complete the S3 multipart upload
     await completeMultipartUpload(s3_key, upload_id, parts);
 
+    // Check if the target folder is inside the Work folder tree
+    const workFlag = folder_id ? await isWorkFolder(folder_id) : false;
+
     // Create the file record in MongoDB
     const createdFile = await File.create({
       user_id: userId,
@@ -717,7 +746,8 @@ const completeUploadController = async (req, res, next) => {
       original_name: file_name,
       file_type: file_type,
       file_size: file_size,
-      s3_key: s3_key
+      s3_key: s3_key,
+      is_work_submission: workFlag
     });
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name, method: 'multipart' }, req.ip);
