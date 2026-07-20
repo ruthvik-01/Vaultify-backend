@@ -107,3 +107,4 @@ app.all('*', (req, res, next) => {
 app.use(errorHandler);
 
 module.exports = app;
+// Trigger nodemon reload after releasing port 5000

@@ -9,7 +9,7 @@ const Video = require('../models/Video');
 const Folder = require('../models/Folder');
 const ActivityLog = require('../models/ActivityLog');
 const { parseAndImportExcel } = require('../services/excelImportService');
-const { deleteFile } = require('../services/s3Service');
+const { deleteFile, getPreSignedDownloadUrl } = require('../services/s3Service');
 
 // Seed default Admin user on startup if admins collection is empty
 async function ensureAdminUser() {
@@ -1106,6 +1106,48 @@ exports.deleteUpload = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `Upload "${fileName}" successfully deleted.`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Admin Get Upload Preview URL - GET /admin/uploads/:id/preview
+ */
+exports.getUploadPreviewUrl = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type } = req.query; // 'video' or 'file'
+
+    let s3Key = '';
+    let fileName = '';
+
+    if (type === 'video') {
+      const video = await Video.findById(id).select('s3Key title filename originalName').lean();
+      if (video) {
+        s3Key = video.s3Key;
+        fileName = video.title || video.filename || video.originalName;
+      }
+    } else {
+      const file = await File.findById(id).select('s3_key file_name original_name').lean();
+      if (file) {
+        s3Key = file.s3_key;
+        fileName = file.file_name || file.original_name;
+      }
+    }
+
+    if (!s3Key) {
+      return res.status(404).json({ success: false, message: 'Upload record not found.' });
+    }
+
+    const disposition = 'inline';
+    const presignedUrl = await getPreSignedDownloadUrl(s3Key, fileName, 900, disposition);
+
+    res.status(200).json({
+      success: true,
+      status: 'success',
+      download_url: presignedUrl
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
