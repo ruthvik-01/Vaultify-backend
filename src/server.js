@@ -26,6 +26,8 @@ const shutdown = (signal, error) => {
   }
 };
 
+const seedAdmins = require('./utils/seedAdmins');
+
 const startServer = async () => {
   try {
     if (!process.env.JWT_SECRET) {
@@ -33,6 +35,7 @@ const startServer = async () => {
     }
 
     await connectDB();
+    await seedAdmins();
     try {
       await checkBucketAccess();
     } catch (s3Err) {
