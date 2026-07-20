@@ -468,6 +468,32 @@ const getSharedFile = async (req, res, next) => {
     } else if (sharedLink.folder_id) {
       const folder = sharedLink.folder_id;
       const files = await File.find({ folder_id: folder.id });
+      
+      const Video = require('../models/Video');
+      const videos = await Video.find({ folderId: folder.id, status: 'Active' });
+
+      const serializedFiles = [
+        ...files.map(serializeFile),
+        ...videos.map(v => ({
+          id: v.id,
+          user_id: v.ownerId,
+          folder_id: v.folderId ? v.folderId.toString() : null,
+          file_name: v.originalName || v.filename,
+          original_name: v.originalName || v.filename,
+          file_type: v.mimeType,
+          file_size: v.size,
+          s3_key: v.s3Key,
+          is_favorite: false,
+          is_work_submission: v.is_work_submission || false,
+          created_at: v.createdAt,
+          updated_at: v.updatedAt,
+          name: v.originalName || v.filename,
+          filename: v.filename,
+          size: v.size,
+          mimeType: v.mimeType
+        }))
+      ];
+
       const subfolders = await Folder.find({ parent_folder_id: folder.id });
 
       res.status(200).json({
@@ -475,7 +501,7 @@ const getSharedFile = async (req, res, next) => {
         data: {
           type: 'folder',
           file_name: folder.folder_name,
-          files: files.map(serializeFile),
+          files: serializedFiles,
           folders: subfolders.map(f => {
             const folderObj = f.toObject();
             folderObj.id = folderObj._id.toString();
@@ -503,20 +529,50 @@ const getSharedFolderFile = async (req, res, next) => {
         return next(new ForbiddenError('This shared folder link has expired.'));
       }
       
-      const file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
-      if (!file) {
-        return next(new NotFoundError('File not found in this shared folder.'));
+      let file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
+      let isVideo = false;
+      let s3Key, originalName, mimeType, size, ownerId;
+
+      if (file) {
+        s3Key = file.s3_key;
+        originalName = file.original_name;
+        mimeType = file.file_type;
+        size = file.file_size;
+        ownerId = file.user_id;
+      } else {
+        const Video = require('../models/Video');
+        const video = await Video.findOne({ _id: fileId, folderId: sharedLink.folder_id._id, status: 'Active' });
+        if (!video) {
+          return next(new NotFoundError('File not found in this shared folder.'));
+        }
+        s3Key = video.s3Key;
+        originalName = video.originalName || video.filename;
+        mimeType = video.mimeType;
+        size = video.size;
+        ownerId = video.ownerId;
+        isVideo = true;
       }
 
-      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600, disposition);
-      await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public_folder' }, req.ip);
+      let presignedUrl;
+      if (isVideo) {
+        const s3Service = require('../services/s3Service');
+        presignedUrl = await s3Service.getPreSignedDownloadUrl(s3Key, originalName, 600, disposition);
+      } else {
+        presignedUrl = await getPreSignedDownloadUrl(s3Key, originalName, 600, disposition);
+      }
+
+      await logActivity(ownerId, 'Download', { 
+        fileId, 
+        viaShare: sharedLink.id, 
+        status: isVideo ? 'public_video_folder' : 'public_folder' 
+      }, req.ip);
 
       return res.status(200).json({
         status: 'success',
         data: {
-          file_name: file.file_name,
-          file_type: file.file_type,
-          file_size: file.file_size,
+          file_name: originalName,
+          file_type: mimeType,
+          file_size: size,
           download_url: presignedUrl
         }
       });
