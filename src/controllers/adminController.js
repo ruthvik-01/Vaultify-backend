@@ -196,7 +196,31 @@ exports.getDashboardStats = async (req, res) => {
 
     const totalFiles = fileStorageResult[0]?.count || 0;
     const totalVideos = videoStorageResult[0]?.count || 0;
-    const totalUploads = totalFiles + totalVideos;
+
+    // Calculate unique upload batch actions count
+    const [fileBatchIds, videoBatchIds, folderBatchIds] = await Promise.all([
+      File.distinct('uploadBatchId', { user_id: { $in: userIds }, is_work_submission: true }),
+      Video.distinct('uploadBatchId', { ownerId: { $in: userIds }, is_work_submission: true }),
+      Folder.distinct('uploadBatchId', { user_id: { $in: userIds } })
+    ]);
+
+    const [legacyFilesCount, legacyVideosCount, legacyFoldersCount] = await Promise.all([
+      File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, uploadBatchId: null }),
+      Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true, uploadBatchId: null }),
+      Folder.countDocuments({ user_id: { $in: userIds }, uploadBatchId: null })
+    ]);
+
+    const cleanFileBatches = fileBatchIds.filter(Boolean);
+    const cleanVideoBatches = videoBatchIds.filter(Boolean);
+    const cleanFolderBatches = folderBatchIds.filter(Boolean);
+
+    const uniqueBatches = new Set([
+      ...cleanFileBatches,
+      ...cleanVideoBatches,
+      ...cleanFolderBatches
+    ]);
+
+    const totalUploads = uniqueBatches.size + legacyFilesCount + legacyVideosCount + legacyFoldersCount;
     const totalStorageUsed = (fileStorageResult[0]?.totalSize || 0) + (videoStorageResult[0]?.totalSize || 0);
 
     const formattedFiles = recentFiles.map(f => {
@@ -518,6 +542,34 @@ exports.getStudentById = async (req, res) => {
       uploads.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
     }
 
+    // Calculate unique upload batch actions count for this student
+    let studentTotalUploads = 0;
+    if (user) {
+      const [fileBatchIds, videoBatchIds, folderBatchIds] = await Promise.all([
+        File.distinct('uploadBatchId', { user_id: user._id, is_work_submission: true }),
+        Video.distinct('uploadBatchId', { ownerId: user._id, is_work_submission: true }),
+        Folder.distinct('uploadBatchId', { user_id: user._id })
+      ]);
+
+      const [legacyFilesCount, legacyVideosCount, legacyFoldersCount] = await Promise.all([
+        File.countDocuments({ user_id: user._id, is_work_submission: true, uploadBatchId: null }),
+        Video.countDocuments({ ownerId: user._id, is_work_submission: true, uploadBatchId: null }),
+        Folder.countDocuments({ user_id: user._id, uploadBatchId: null })
+      ]);
+
+      const cleanFileBatches = fileBatchIds.filter(Boolean);
+      const cleanVideoBatches = videoBatchIds.filter(Boolean);
+      const cleanFolderBatches = folderBatchIds.filter(Boolean);
+
+      const uniqueBatches = new Set([
+        ...cleanFileBatches,
+        ...cleanVideoBatches,
+        ...cleanFolderBatches
+      ]);
+
+      studentTotalUploads = uniqueBatches.size + legacyFilesCount + legacyVideosCount + legacyFoldersCount;
+    }
+
     const studentStats = {
       id: s._id.toString(),
       studentName: s.studentName,
@@ -525,7 +577,7 @@ exports.getStudentById = async (req, res) => {
       email: s.email,
       team: s.team,
       active: s.active !== false,
-      totalUploads: fileCount + videoCount,
+      totalUploads: studentTotalUploads,
       uploadedFilesCount: fileCount,
       uploadedVideosCount: videoCount,
       folderCount,
@@ -771,7 +823,7 @@ exports.getTeamByName = async (req, res) => {
                 is_work_submission: true
               }
             },
-            { $project: { file_size: 1 } }
+            { $project: { file_size: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'files'
         }
@@ -792,9 +844,29 @@ exports.getTeamByName = async (req, res) => {
                 is_work_submission: true
               }
             },
-            { $project: { size: 1 } }
+            { $project: { size: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
           ],
           as: 'videos'
+        }
+      },
+      {
+        $lookup: {
+          from: 'folders',
+          let: { userId: '$user._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $ne: ['$$userId', null] },
+                    { $eq: ['$user_id', '$$userId'] }
+                  ]
+                }
+              }
+            },
+            { $project: { uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
+          ],
+          as: 'folders'
         }
       },
       {
