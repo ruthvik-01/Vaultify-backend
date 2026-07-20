@@ -845,6 +845,13 @@ exports.getUploads = async (req, res) => {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 10);
 
+    const activeStudents = await AdminStudent.find({ active: true }).select('email').lean();
+    const emails = activeStudents.map(s => s.email.toLowerCase());
+    const monitoredUsers = emails.length > 0
+      ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id').lean()
+      : [];
+    const monitoredUserIds = monitoredUsers.map(u => u._id);
+
     const matchStage = {};
 
     if (search) {
@@ -945,7 +952,7 @@ exports.getUploads = async (req, res) => {
     }
 
     const aggregationPipeline = [
-      { $match: { is_work_submission: true } },
+      { $match: { is_work_submission: true, user_id: { $in: monitoredUserIds } } },
       {
         $lookup: {
           from: 'users',
@@ -994,7 +1001,7 @@ exports.getUploads = async (req, res) => {
         $unionWith: {
           coll: 'videos',
           pipeline: [
-            { $match: { is_work_submission: true } },
+            { $match: { is_work_submission: true, ownerId: { $in: monitoredUserIds } } },
             {
               $lookup: {
                 from: 'users',
