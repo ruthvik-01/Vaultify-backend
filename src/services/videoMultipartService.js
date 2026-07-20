@@ -46,6 +46,32 @@ const initiateVideoUpload = async (userId, { filename, mimeType, size, folderId 
   }
 };
 
+const Folder = require('../models/Folder');
+const VideoFolder = require('../models/VideoFolder');
+
+const checkIsWorkFolder = async (folderId) => {
+  if (!folderId) return false;
+  let currentId = folderId;
+  let depth = 0;
+  while (currentId && depth < 20) {
+    const folder = await Folder.findById(currentId).select('folder_type parent_folder_id').lean().catch(() => null);
+    if (folder) {
+      if (folder.folder_type === 'work') return true;
+      currentId = folder.parent_folder_id;
+      depth++;
+      continue;
+    }
+    const vFolder = await VideoFolder.findById(currentId).select('parentFolder').lean().catch(() => null);
+    if (vFolder) {
+      currentId = vFolder.parentFolder;
+      depth++;
+      continue;
+    }
+    break;
+  }
+  return false;
+};
+
 const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size }) => {
   try {
     if (!objectKey) {
@@ -58,6 +84,8 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
 
     const bucketName = process.env.AWS_S3_BUCKET_NAME || 'gd-miniproject';
 
+    const isWork = await checkIsWorkFolder(folderId);
+
     // Store metadata in MongoDB only after successful S3 completion
     const video = await Video.create({
       _id: videoId,
@@ -69,7 +97,8 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
       folderId: folderId || null,
       s3Key: objectKey,
       bucket: bucketName,
-      status: 'Active'
+      status: 'Active',
+      is_work_submission: isWork
     });
 
     logger.info(`Upload Completed: Video metadata saved successfully in DB for video ID ${video._id}`);

@@ -13,7 +13,8 @@ const videoSchema = new mongoose.Schema({
   status: { type: String, enum: ['Uploading', 'Active', 'Failed'], default: 'Uploading' },
   shareToken: { type: String, default: null, index: true },
   publicUrl: { type: String, default: null },
-  isShared: { type: Boolean, default: false }
+  isShared: { type: Boolean, default: false },
+  is_work_submission: { type: Boolean, default: false }
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });
@@ -22,6 +23,7 @@ const videoSchema = new mongoose.Schema({
 videoSchema.index({ ownerId: 1, folderId: 1 });
 videoSchema.index({ ownerId: 1, createdAt: -1 });
 videoSchema.index({ folderId: 1, createdAt: -1 });
+videoSchema.index({ is_work_submission: 1, ownerId: 1, createdAt: -1 });
 videoSchema.index({ status: 1 });
 videoSchema.index({ createdAt: -1 });
 videoSchema.index({ size: -1 });

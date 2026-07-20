@@ -25,7 +25,34 @@ const renameVideo = async (ownerId, videoId, newName) => {
   return video;
 };
 
+const Folder = require('../models/Folder');
+const VideoFolder = require('../models/VideoFolder');
+
+const checkIsWorkFolder = async (folderId) => {
+  if (!folderId) return false;
+  let currentId = folderId;
+  let depth = 0;
+  while (currentId && depth < 20) {
+    const folder = await Folder.findById(currentId).select('folder_type parent_folder_id').lean().catch(() => null);
+    if (folder) {
+      if (folder.folder_type === 'work') return true;
+      currentId = folder.parent_folder_id;
+      depth++;
+      continue;
+    }
+    const vFolder = await VideoFolder.findById(currentId).select('parentFolder').lean().catch(() => null);
+    if (vFolder) {
+      currentId = vFolder.parentFolder;
+      depth++;
+      continue;
+    }
+    break;
+  }
+  return false;
+};
+
 const moveVideo = async (ownerId, videoId, targetFolderId) => {
+  const isWork = await checkIsWorkFolder(targetFolderId);
   let video = await Video.findOne({ _id: videoId, ownerId }).catch(() => null);
   if (!video) {
     const raw = await Video.collection.findOne({ _id: videoId, ownerId: new mongoose.Types.ObjectId(ownerId) });
@@ -34,11 +61,12 @@ const moveVideo = async (ownerId, videoId, targetFolderId) => {
     }
     await Video.collection.updateOne(
       { _id: videoId },
-      { $set: { folderId: targetFolderId ? new mongoose.Types.ObjectId(targetFolderId) : null } }
+      { $set: { folderId: targetFolderId ? new mongoose.Types.ObjectId(targetFolderId) : null, is_work_submission: isWork } }
     );
     return raw;
   }
   video.folderId = targetFolderId || null;
+  video.is_work_submission = isWork;
   await video.save();
   return video;
 };
