@@ -10,7 +10,8 @@ const fileSchema = new mongoose.Schema({
   s3_key: { type: String, required: true },
   is_favorite: { type: Boolean, default: false },
   is_work_submission: { type: Boolean, default: false },
-  uploadBatchId: { type: String, default: null }
+  uploadBatchId: { type: String, default: null },
+  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null }
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
@@ -22,5 +23,6 @@ fileSchema.index({ file_type: 1, created_at: -1 });
 fileSchema.index({ file_size: -1 });
 fileSchema.index({ created_at: -1 });
 fileSchema.index({ is_work_submission: 1, user_id: 1, created_at: -1 });
+fileSchema.index({ upload_group_id: 1 });
 
 module.exports = mongoose.model('File', fileSchema);

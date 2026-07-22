@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const sharedLinkSchema = new mongoose.Schema({
   file_id: { type: mongoose.Schema.Types.ObjectId, ref: 'File', default: null },
   folder_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Folder', default: null },
+  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null },
   token: { type: String, required: true, unique: true },
   permission: { type: String, enum: ['read', 'download'], default: 'read' },
   expiry_date: { type: Date, default: null }

@@ -1,5 +1,6 @@
 const Folder = require('../models/Folder');
 const File = require('../models/File');
+const UploadGroup = require('../models/UploadGroup');
 const logger = require('../config/logger');
 const { logActivity } = require('../services/activityService');
 const { deleteFile } = require('../services/s3Service');
@@ -10,7 +11,7 @@ const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/err
  */
 const createFolder = async (req, res, next) => {
   try {
-    const { folder_name, parent_folder_id, uploadBatchId } = req.body;
+    const { folder_name, parent_folder_id, uploadBatchId, upload_group_id } = req.body;
     const userId = req.user.id;
 
     // Check parent folder ownership if parent_folder_id is provided
@@ -28,8 +29,14 @@ const createFolder = async (req, res, next) => {
       user_id: userId,
       folder_name,
       parent_folder_id: parent_folder_id || null,
-      uploadBatchId: uploadBatchId || null
+      uploadBatchId: uploadBatchId || null,
+      upload_group_id: upload_group_id || null
     });
+
+    // Mark the UploadGroup as containing folders
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(upload_group_id, { has_folders: true });
+    }
 
     res.status(201).json({
       status: 'success',

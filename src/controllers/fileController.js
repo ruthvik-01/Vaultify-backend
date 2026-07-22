@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const File = require('../models/File');
 const Folder = require('../models/Folder');
 const SharedLink = require('../models/SharedLink');
+const UploadGroup = require('../models/UploadGroup');
 const {
   uploadFile,
   deleteFile: deleteS3File,
@@ -46,6 +47,7 @@ const serializeFile = (file) => ({
   s3_key: file.s3_key,
   is_favorite: file.is_favorite,
   is_work_submission: file.is_work_submission || false,
+  upload_group_id: file.upload_group_id ? file.upload_group_id.toString() : null,
   created_at: file.created_at,
   updated_at: file.updated_at
 });
@@ -110,7 +112,7 @@ const findOwnedFile = async (fileId, userId) => {
 const uploadFileController = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { folder_id, uploadBatchId } = req.body;
+    const { folder_id, uploadBatchId, upload_group_id } = req.body;
 
     if (!req.file) {
       return next(new BadRequestError('No file uploaded.'));
@@ -137,8 +139,16 @@ const uploadFileController = async (req, res, next) => {
       file_size: file.size,
       s3_key: s3Key,
       is_work_submission: workFlag,
-      uploadBatchId: uploadBatchId || null
+      uploadBatchId: uploadBatchId || null,
+      upload_group_id: upload_group_id || null
     });
+
+    // Update UploadGroup counters if group is specified
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(upload_group_id, {
+        $inc: { file_count: 1, total_size: file.size }
+      });
+    }
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name }, req.ip);
 
@@ -783,7 +793,7 @@ const initiateUploadController = async (req, res, next) => {
 const completeUploadController = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id, uploadBatchId } = req.body;
+    const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id, uploadBatchId, upload_group_id } = req.body;
 
     if (!upload_id || !s3_key || !parts || !Array.isArray(parts) || parts.length === 0) {
       return next(new BadRequestError('upload_id, s3_key, and parts[] are required.'));
@@ -805,8 +815,16 @@ const completeUploadController = async (req, res, next) => {
       file_size: file_size,
       s3_key: s3_key,
       is_work_submission: workFlag,
-      uploadBatchId: uploadBatchId || null
+      uploadBatchId: uploadBatchId || null,
+      upload_group_id: upload_group_id || null
     });
+
+    // Update UploadGroup counters if group is specified
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(upload_group_id, {
+        $inc: { file_count: 1, total_size: file_size }
+      });
+    }
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name, method: 'multipart' }, req.ip);
 

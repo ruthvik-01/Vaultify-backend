@@ -3,7 +3,8 @@ const Joi = require('joi');
 const objectId = Joi.string().trim().length(24).hex();
 
 const uploadFileSchema = Joi.object({
-  folder_id: objectId.allow(null, '').optional() // Multer fields are strings
+  folder_id: objectId.allow(null, '').optional(), // Multer fields are strings
+  upload_group_id: objectId.allow(null, '').optional()
 });
 
 const updateFileSchema = Joi.object({
@@ -68,7 +69,8 @@ const completeUploadSchema = Joi.object({
   file_name: Joi.string().trim().required(),
   file_type: Joi.string().trim().required(),
   file_size: Joi.number().integer().min(1).required(),
-  folder_id: objectId.allow(null, '').optional()
+  folder_id: objectId.allow(null, '').optional(),
+  upload_group_id: objectId.allow(null, '').optional()
 });
 
 const abortUploadSchema = Joi.object({

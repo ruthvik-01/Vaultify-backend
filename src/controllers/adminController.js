@@ -7,6 +7,7 @@ const User = require('../models/User');
 const File = require('../models/File');
 const Video = require('../models/Video');
 const Folder = require('../models/Folder');
+const UploadGroup = require('../models/UploadGroup');
 const ActivityLog = require('../models/ActivityLog');
 const { parseAndImportExcel } = require('../services/excelImportService');
 const { deleteFile, getPreSignedDownloadUrl } = require('../services/s3Service');
@@ -197,30 +198,16 @@ exports.getDashboardStats = async (req, res) => {
     const totalFiles = fileStorageResult[0]?.count || 0;
     const totalVideos = videoStorageResult[0]?.count || 0;
 
-    // Calculate unique upload batch actions count
-    const [fileBatchIds, videoBatchIds, folderBatchIds] = await Promise.all([
-      File.distinct('uploadBatchId', { user_id: { $in: userIds }, is_work_submission: true }),
-      Video.distinct('uploadBatchId', { ownerId: { $in: userIds }, is_work_submission: true }),
-      Folder.distinct('uploadBatchId', { user_id: { $in: userIds } })
+    // Count upload groups instead of individual files
+    const totalUploadGroups = await UploadGroup.countDocuments({ user_id: { $in: userIds } });
+
+    // Also count legacy files/videos that have no upload_group_id (backward compat)
+    const [legacyFileCount, legacyVideoCount] = await Promise.all([
+      File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, upload_group_id: null }),
+      Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true, upload_group_id: null })
     ]);
 
-    const [legacyFilesCount, legacyVideosCount, legacyFoldersCount] = await Promise.all([
-      File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, uploadBatchId: null }),
-      Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true, uploadBatchId: null }),
-      Folder.countDocuments({ user_id: { $in: userIds }, uploadBatchId: null })
-    ]);
-
-    const cleanFileBatches = fileBatchIds.filter(Boolean);
-    const cleanVideoBatches = videoBatchIds.filter(Boolean);
-    const cleanFolderBatches = folderBatchIds.filter(Boolean);
-
-    const uniqueBatches = new Set([
-      ...cleanFileBatches,
-      ...cleanVideoBatches,
-      ...cleanFolderBatches
-    ]);
-
-    const totalUploads = uniqueBatches.size + legacyFilesCount + legacyVideosCount + legacyFoldersCount;
+    const totalUploads = totalUploadGroups + legacyFileCount + legacyVideoCount;
     const totalStorageUsed = (fileStorageResult[0]?.totalSize || 0) + (videoStorageResult[0]?.totalSize || 0);
 
     const formattedFiles = recentFiles.map(f => {
