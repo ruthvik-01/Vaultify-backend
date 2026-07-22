@@ -15,7 +15,8 @@ const videoSchema = new mongoose.Schema({
   publicUrl: { type: String, default: null },
   isShared: { type: Boolean, default: false },
   is_work_submission: { type: Boolean, default: false },
-  uploadBatchId: { type: String, default: null }
+  uploadBatchId: { type: String, default: null },
+  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null }
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });
@@ -28,5 +29,6 @@ videoSchema.index({ is_work_submission: 1, ownerId: 1, createdAt: -1 });
 videoSchema.index({ status: 1 });
 videoSchema.index({ createdAt: -1 });
 videoSchema.index({ size: -1 });
+videoSchema.index({ upload_group_id: 1 });
 
 module.exports = mongoose.model('Video', videoSchema);
