@@ -1065,7 +1065,8 @@ exports.getUploads = async (req, res) => {
           team: { $ifNull: ['$studentInfo.team', 'General'] },
           size: '$file_size',
           uploadDate: '$created_at',
-          fileType: '$file_type'
+          fileType: '$file_type',
+          upload_group_id: { $ifNull: ['$upload_group_id', null] }
         }
       },
       {
@@ -1114,10 +1115,88 @@ exports.getUploads = async (req, res) => {
                 team: { $ifNull: ['$studentInfo.team', 'General'] },
                 size: '$size',
                 uploadDate: '$createdAt',
-                fileType: { $literal: 'video' }
+                fileType: { $literal: 'video' },
+                upload_group_id: { $ifNull: ['$upload_group_id', null] }
               }
             }
           ]
+        }
+      },
+      {
+        $lookup: {
+          from: 'uploadgroups',
+          localField: 'upload_group_id',
+          foreignField: '_id',
+          as: 'uploadGroup'
+        }
+      },
+      { $unwind: { path: '$uploadGroup', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: {
+            $cond: {
+              if: { $and: [{ $ne: ['$upload_group_id', null] }, { $ne: ['$upload_group_id', ''] }] },
+              then: '$upload_group_id',
+              else: { $toObjectId: '$id' }
+            }
+          },
+          isGroup: {
+            $first: {
+              $cond: {
+                if: { $and: [{ $ne: ['$upload_group_id', null] }, { $ne: ['$upload_group_id', ''] }] },
+                then: true,
+                else: false
+              }
+            }
+          },
+          groupTitle: { $first: '$uploadGroup.title' },
+          fileCount: { $sum: 1 },
+          size: { $sum: '$size' },
+          uploadDate: { $max: '$uploadDate' },
+          student: { $first: '$student' },
+          studentEmail: { $first: '$studentEmail' },
+          team: { $first: '$team' },
+          folder: { $first: '$folder' },
+          fileName: { $first: '$fileName' },
+          fileType: { $first: '$fileType' }
+        }
+      },
+      {
+        $project: {
+          id: { $toString: '$_id' },
+          student: 1,
+          studentEmail: 1,
+          team: 1,
+          folder: {
+            $cond: {
+              if: '$isGroup',
+              then: 'Upload Group',
+              else: '$folder'
+            }
+          },
+          fileName: {
+            $cond: {
+              if: '$isGroup',
+              then: {
+                $concat: [
+                  { $ifNull: ['$groupTitle', 'Unnamed Collection'] },
+                  ' (',
+                  { $toString: '$fileCount' },
+                  { $cond: { if: { $eq: ['$fileCount', 1] }, then: ' file)', else: ' files)' } }
+                ]
+              },
+              else: '$fileName'
+            }
+          },
+          fileType: {
+            $cond: {
+              if: '$isGroup',
+              then: 'group',
+              else: '$fileType'
+            }
+          },
+          size: 1,
+          uploadDate: 1
         }
       },
       { $match: matchStage },
@@ -1161,7 +1240,34 @@ exports.deleteUpload = async (req, res) => {
     let deleted = false;
     let fileName = '';
 
-    if (type === 'video') {
+    if (type === 'group') {
+      const group = await UploadGroup.findById(id);
+      if (group) {
+        fileName = group.title;
+        
+        // Cascade delete files
+        const groupFiles = await File.find({ upload_group_id: id });
+        const s3Promises = groupFiles.map(f =>
+          deleteFile(f.s3_key).catch(err => console.warn('S3 file delete error:', err.message))
+        );
+        await Promise.all(s3Promises);
+        await File.deleteMany({ upload_group_id: id });
+
+        // Cascade delete videos
+        const groupVideos = await Video.find({ upload_group_id: id });
+        const s3VideoPromises = groupVideos.map(v =>
+          deleteFile(v.s3Key).catch(err => console.warn('S3 video delete error:', err.message))
+        );
+        await Promise.all(s3VideoPromises);
+        await Video.deleteMany({ upload_group_id: id });
+
+        // Delete group record
+        await UploadGroup.findByIdAndDelete(id);
+        deleted = true;
+      }
+    }
+
+    if (!deleted && type === 'video') {
       const video = await Video.findById(id).select('title filename originalName s3Key').lean();
       if (video) {
         fileName = video.title || video.filename || video.originalName;

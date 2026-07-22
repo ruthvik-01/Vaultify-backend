@@ -3,6 +3,7 @@ const UploadGroup = require('../models/UploadGroup');
 const s3Service = require('./s3Service');
 const { NotFoundError } = require('../utils/errors');
 const mongoose = require('mongoose');
+const { checkIsWorkFolder } = require('./videoService');
 const fs = require('fs');
 const path = require('path');
 
@@ -22,6 +23,8 @@ const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId =
     const s3Key = `users/${ownerId}/${category}/${objectId}-${cleanName}`;
 
     const uploadId = await s3Service.initiateMultipartUpload(s3Key, mimeType);
+    const isWork = await checkIsWorkFolder(folderId);
+
     const video = await Video.create({
       _id: objectId,
       ownerId,
@@ -33,7 +36,7 @@ const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId =
       folderId: folderId || null,
       status: 'Uploading',
       upload_group_id: upload_group_id || null,
-      is_work_submission: folderId ? true : false // if in folder, mark it as work submission
+      is_work_submission: isWork
     });
 
     const partSize = s3Service.PART_SIZE || 100 * 1024 * 1024;
@@ -52,6 +55,8 @@ const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId =
     const uploadId = `local_up_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const s3Key = `local://${objectId}`;
 
+    const isWork = await checkIsWorkFolder(folderId);
+
     const video = await Video.create({
       _id: objectId,
       ownerId,
@@ -63,7 +68,7 @@ const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId =
       folderId: folderId || null,
       status: 'Uploading',
       upload_group_id: upload_group_id || null,
-      is_work_submission: folderId ? true : false
+      is_work_submission: isWork
     });
 
     const partSize = 100 * 1024 * 1024; // 100 MB
