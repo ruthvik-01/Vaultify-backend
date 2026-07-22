@@ -72,7 +72,7 @@ const checkIsWorkFolder = async (folderId) => {
   return false;
 };
 
-const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size, uploadBatchId }) => {
+const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size, uploadBatchId, relative_path, upload_group_id }) => {
   try {
     if (!objectKey) {
       throw new BadRequestError('S3 object key is missing before completing multipart upload.');
@@ -99,7 +99,9 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
       bucket: bucketName,
       status: 'Active',
       is_work_submission: isWork,
-      uploadBatchId: uploadBatchId || null
+      uploadBatchId: uploadBatchId || null,
+      relative_path: relative_path || null,
+      upload_group_id: upload_group_id || null
     });
 
     logger.info(`Upload Completed: Video metadata saved successfully in DB for video ID ${video._id}`);

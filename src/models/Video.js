@@ -16,6 +16,7 @@ const videoSchema = new mongoose.Schema({
   isShared: { type: Boolean, default: false },
   is_work_submission: { type: Boolean, default: false },
   uploadBatchId: { type: String, default: null },
+  relative_path: { type: String, default: null },
   upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null }
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }

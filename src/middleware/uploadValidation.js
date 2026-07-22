@@ -11,7 +11,9 @@ const initiateUploadSchema = Joi.object({
     'number.base': 'Size must be a number',
     'number.max': 'File size exceeds the 25 GB limit.'
   }),
-  folderId: Joi.string().trim().allow(null, '').optional()
+  folderId: Joi.string().trim().allow(null, '').optional(),
+  uploadBatchId: Joi.string().trim().allow(null, '').optional(),
+  relative_path: Joi.string().trim().allow(null, '').optional()
 });
 
 const completeUploadSchema = Joi.object({

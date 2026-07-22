@@ -13,6 +13,8 @@ const userSchema = new mongoose.Schema({
   accent_color: { type: String, default: 'green' },
   font_size: { type: String, enum: ['small', 'medium', 'large'], default: 'medium' },
   google_id: { type: String, default: null },
+  university: { type: String, default: '' },
+  organization: { type: String, default: '' },
   verification_token: { type: String, default: null },
   reset_token: { type: String, default: null },
   reset_token_expires: { type: Date, default: null }
