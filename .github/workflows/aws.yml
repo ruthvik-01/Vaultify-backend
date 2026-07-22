@@ -1,0 +1,64 @@
+name: Build and Deploy Backend
+
+on:
+  push:
+    branches:
+      - b5
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: b5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Uncomment if your project has tests
+      # - name: Run Tests
+      #   run: npm test
+
+      # Uncomment if your project requires build
+      # - name: Build Project
+      #   run: npm run build
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            cd /home/ec2-user
+
+            if [ ! -d "Vaultify-backend" ]; then
+              git clone -b b5 https://github.com/${{ github.repository }}.git Vaultify-backend
+            fi
+
+            cd Vaultify-backend
+
+            git fetch origin
+            git reset --hard origin/b5
+
+            npm ci
+
+            # Uncomment if needed
+            # npm run build
+
+            pm2 restart vaultify-backend || pm2 start npm --name "vaultify-backend" -- start
+
+            pm2 save

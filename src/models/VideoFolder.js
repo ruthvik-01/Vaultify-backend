@@ -4,7 +4,9 @@ const videoFolderSchema = new mongoose.Schema({
   ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
   parentFolder: { type: mongoose.Schema.Types.ObjectId, ref: 'VideoFolder', default: null },
-  path: { type: String, required: true }
+  path: { type: String, required: true },
+  uploadBatchId: { type: String, default: null },
+  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null }
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });

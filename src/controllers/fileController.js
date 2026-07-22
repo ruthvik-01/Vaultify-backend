@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const File = require('../models/File');
 const Folder = require('../models/Folder');
 const SharedLink = require('../models/SharedLink');
+const UploadGroup = require('../models/UploadGroup');
 const {
   uploadFile,
   deleteFile: deleteS3File,
@@ -45,6 +46,8 @@ const serializeFile = (file) => ({
   file_size: file.file_size,
   s3_key: file.s3_key,
   is_favorite: file.is_favorite,
+  is_work_submission: file.is_work_submission || false,
+  upload_group_id: file.upload_group_id ? file.upload_group_id.toString() : null,
   created_at: file.created_at,
   updated_at: file.updated_at
 });
@@ -74,6 +77,25 @@ const ensureOwnedFolder = async (folderId, userId) => {
   return folder;
 };
 
+/**
+ * Check if a folder (or any of its ancestors) is a Work folder.
+ * Walks up the folder tree via parent_folder_id.
+ */
+const isWorkFolder = async (folderId) => {
+  if (!folderId) return false;
+  let currentId = folderId;
+  // Safety limit to prevent infinite loops on corrupted data
+  let depth = 0;
+  while (currentId && depth < 20) {
+    const folder = await Folder.findById(currentId).select('folder_type parent_folder_id').lean();
+    if (!folder) return false;
+    if (folder.folder_type === 'work') return true;
+    currentId = folder.parent_folder_id;
+    depth++;
+  }
+  return false;
+};
+
 const findOwnedFile = async (fileId, userId) => {
   const file = await File.findById(fileId);
   if (!file) {
@@ -90,11 +112,7 @@ const findOwnedFile = async (fileId, userId) => {
 const uploadFileController = async (req, res, next) => {
   try {
     const userId = req.user.id;
-<<<<<<< Updated upstream
-    const { folder_id } = req.body;
-=======
-    const { folder_id, uploadBatchId, relative_path } = req.body;
->>>>>>> Stashed changes
+    const { folder_id, uploadBatchId, relative_path, upload_group_id } = req.body;
 
     if (!req.file) {
       return next(new BadRequestError('No file uploaded.'));
@@ -109,6 +127,9 @@ const uploadFileController = async (req, res, next) => {
 
     await uploadFile(file.buffer, s3Key, file.mimetype);
 
+    // Check if the target folder is inside the Work folder tree
+    const workFlag = folder ? await isWorkFolder(folder.id) : false;
+
     const createdFile = await File.create({
       user_id: userId,
       folder_id: folder ? folder.id : null,
@@ -116,15 +137,19 @@ const uploadFileController = async (req, res, next) => {
       original_name: file.originalname,
       file_type: file.mimetype,
       file_size: file.size,
-<<<<<<< Updated upstream
-      s3_key: s3Key
-=======
       s3_key: s3Key,
       is_work_submission: workFlag,
       uploadBatchId: uploadBatchId || null,
-      relative_path: relative_path || null
->>>>>>> Stashed changes
+      relative_path: relative_path || null,
+      upload_group_id: upload_group_id || null
     });
+
+    // Update UploadGroup counters if group is specified
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(upload_group_id, {
+        $inc: { file_count: 1, total_size: file.size }
+      });
+    }
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name }, req.ip);
 
@@ -230,6 +255,8 @@ const moveFile = async (req, res, next) => {
     const oldFolder = file.folder_id ? file.folder_id.toString() : null;
 
     file.folder_id = folder ? folder.id : null;
+    // Recalculate work submission flag based on new folder
+    file.is_work_submission = folder ? await isWorkFolder(folder.id) : false;
     await file.save();
 
     await logActivity(
@@ -452,6 +479,32 @@ const getSharedFile = async (req, res, next) => {
     } else if (sharedLink.folder_id) {
       const folder = sharedLink.folder_id;
       const files = await File.find({ folder_id: folder.id });
+      
+      const Video = require('../models/Video');
+      const videos = await Video.find({ folderId: folder.id, status: 'Active' });
+
+      const serializedFiles = [
+        ...files.map(serializeFile),
+        ...videos.map(v => ({
+          id: v.id,
+          user_id: v.ownerId,
+          folder_id: v.folderId ? v.folderId.toString() : null,
+          file_name: v.originalName || v.filename,
+          original_name: v.originalName || v.filename,
+          file_type: v.mimeType,
+          file_size: v.size,
+          s3_key: v.s3Key,
+          is_favorite: false,
+          is_work_submission: v.is_work_submission || false,
+          created_at: v.createdAt,
+          updated_at: v.updatedAt,
+          name: v.originalName || v.filename,
+          filename: v.filename,
+          size: v.size,
+          mimeType: v.mimeType
+        }))
+      ];
+
       const subfolders = await Folder.find({ parent_folder_id: folder.id });
 
       res.status(200).json({
@@ -459,7 +512,7 @@ const getSharedFile = async (req, res, next) => {
         data: {
           type: 'folder',
           file_name: folder.folder_name,
-          files: files.map(serializeFile),
+          files: serializedFiles,
           folders: subfolders.map(f => {
             const folderObj = f.toObject();
             folderObj.id = folderObj._id.toString();
@@ -487,20 +540,50 @@ const getSharedFolderFile = async (req, res, next) => {
         return next(new ForbiddenError('This shared folder link has expired.'));
       }
       
-      const file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
-      if (!file) {
-        return next(new NotFoundError('File not found in this shared folder.'));
+      let file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
+      let isVideo = false;
+      let s3Key, originalName, mimeType, size, ownerId;
+
+      if (file) {
+        s3Key = file.s3_key;
+        originalName = file.original_name;
+        mimeType = file.file_type;
+        size = file.file_size;
+        ownerId = file.user_id;
+      } else {
+        const Video = require('../models/Video');
+        const video = await Video.findOne({ _id: fileId, folderId: sharedLink.folder_id._id, status: 'Active' });
+        if (!video) {
+          return next(new NotFoundError('File not found in this shared folder.'));
+        }
+        s3Key = video.s3Key;
+        originalName = video.originalName || video.filename;
+        mimeType = video.mimeType;
+        size = video.size;
+        ownerId = video.ownerId;
+        isVideo = true;
       }
 
-      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600, disposition);
-      await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public_folder' }, req.ip);
+      let presignedUrl;
+      if (isVideo) {
+        const s3Service = require('../services/s3Service');
+        presignedUrl = await s3Service.getPreSignedDownloadUrl(s3Key, originalName, 600, disposition);
+      } else {
+        presignedUrl = await getPreSignedDownloadUrl(s3Key, originalName, 600, disposition);
+      }
+
+      await logActivity(ownerId, 'Download', { 
+        fileId, 
+        viaShare: sharedLink.id, 
+        status: isVideo ? 'public_video_folder' : 'public_folder' 
+      }, req.ip);
 
       return res.status(200).json({
         status: 'success',
         data: {
-          file_name: file.file_name,
-          file_type: file.file_type,
-          file_size: file.file_size,
+          file_name: originalName,
+          file_type: mimeType,
+          file_size: size,
           download_url: presignedUrl
         }
       });
@@ -711,11 +794,7 @@ const initiateUploadController = async (req, res, next) => {
 const completeUploadController = async (req, res, next) => {
   try {
     const userId = req.user.id;
-<<<<<<< Updated upstream
-    const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id } = req.body;
-=======
-    const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id, uploadBatchId, relative_path } = req.body;
->>>>>>> Stashed changes
+    const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id, uploadBatchId, relative_path, upload_group_id } = req.body;
 
     if (!upload_id || !s3_key || !parts || !Array.isArray(parts) || parts.length === 0) {
       return next(new BadRequestError('upload_id, s3_key, and parts[] are required.'));
@@ -723,6 +802,9 @@ const completeUploadController = async (req, res, next) => {
 
     // Complete the S3 multipart upload
     await completeMultipartUpload(s3_key, upload_id, parts);
+
+    // Check if the target folder is inside the Work folder tree
+    const workFlag = folder_id ? await isWorkFolder(folder_id) : false;
 
     // Create the file record in MongoDB
     const createdFile = await File.create({
@@ -732,15 +814,19 @@ const completeUploadController = async (req, res, next) => {
       original_name: file_name,
       file_type: file_type,
       file_size: file_size,
-<<<<<<< Updated upstream
-      s3_key: s3_key
-=======
       s3_key: s3_key,
       is_work_submission: workFlag,
       uploadBatchId: uploadBatchId || null,
-      relative_path: relative_path || null
->>>>>>> Stashed changes
+      relative_path: relative_path || null,
+      upload_group_id: upload_group_id || null
     });
+
+    // Update UploadGroup counters if group is specified
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(upload_group_id, {
+        $inc: { file_count: 1, total_size: file_size }
+      });
+    }
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name, method: 'multipart' }, req.ip);
 

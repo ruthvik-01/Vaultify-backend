@@ -5,7 +5,8 @@ const objectId = Joi.string().trim().length(24).hex();
 const uploadFileSchema = Joi.object({
   folder_id: objectId.allow(null, '').optional(), // Multer fields are strings
   uploadBatchId: Joi.string().trim().allow(null, '').optional(),
-  relative_path: Joi.string().trim().allow(null, '').optional()
+  relative_path: Joi.string().trim().allow(null, '').optional(),
+  upload_group_id: objectId.allow(null, '').optional()
 });
 
 const updateFileSchema = Joi.object({
@@ -74,7 +75,8 @@ const completeUploadSchema = Joi.object({
   file_size: Joi.number().integer().min(1).required(),
   folder_id: objectId.allow(null, '').optional(),
   uploadBatchId: Joi.string().trim().allow(null, '').optional(),
-  relative_path: Joi.string().trim().allow(null, '').optional()
+  relative_path: Joi.string().trim().allow(null, '').optional(),
+  upload_group_id: objectId.allow(null, '').optional()
 });
 
 const abortUploadSchema = Joi.object({

@@ -5,7 +5,8 @@ const {
   createFolder,
   getFolders,
   updateFolder,
-  deleteFolder
+  deleteFolder,
+  getOrCreateWorkFolder
 } = require('../controllers/folderController');
 
 const { protect } = require('../middleware/authMiddleware');
@@ -17,6 +18,7 @@ router.use(protect);
 
 router.post('/', validate(createFolderSchema), createFolder);
 router.get('/', getFolders);
+router.get('/work', getOrCreateWorkFolder);
 router.put('/:id', validate(updateFolderSchema), updateFolder);
 router.delete('/:id', deleteFolder);
 

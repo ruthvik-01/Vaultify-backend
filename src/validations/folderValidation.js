@@ -8,7 +8,8 @@ const createFolderSchema = Joi.object({
     'string.min': 'Folder name must contain at least 1 character.',
     'string.max': 'Folder name cannot exceed 255 characters.'
   }),
-  parent_folder_id: objectId.allow(null, '').optional()
+  parent_folder_id: objectId.allow(null, '').optional(),
+  upload_group_id: objectId.allow(null, '').optional()
 });
 
 const updateFolderSchema = Joi.object({

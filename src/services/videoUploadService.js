@@ -1,4 +1,5 @@
 const Video = require('../models/Video');
+const UploadGroup = require('../models/UploadGroup');
 const s3Service = require('./s3Service');
 const { NotFoundError } = require('../utils/errors');
 const mongoose = require('mongoose');
@@ -12,7 +13,7 @@ const isS3Configured = () => {
   );
 };
 
-const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId = null, hostUrl = '') => {
+const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId = null, hostUrl = '', upload_group_id = null) => {
   const objectId = new mongoose.Types.ObjectId();
 
   if (isS3Configured()) {
@@ -30,7 +31,9 @@ const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId =
       size,
       s3Key,
       folderId: folderId || null,
-      status: 'Uploading'
+      status: 'Uploading',
+      upload_group_id: upload_group_id || null,
+      is_work_submission: folderId ? true : false // if in folder, mark it as work submission
     });
 
     const partSize = s3Service.PART_SIZE || 100 * 1024 * 1024;
@@ -58,7 +61,9 @@ const initiateVideoUpload = async (ownerId, filename, mimeType, size, folderId =
       size,
       s3Key,
       folderId: folderId || null,
-      status: 'Uploading'
+      status: 'Uploading',
+      upload_group_id: upload_group_id || null,
+      is_work_submission: folderId ? true : false
     });
 
     const partSize = 100 * 1024 * 1024; // 100 MB
@@ -109,12 +114,28 @@ const completeVideoUpload = async (ownerId, videoId, uploadId, parts) => {
 
     video.status = 'Active';
     await video.save();
+
+    // Increment UploadGroup counters if group is specified
+    if (video.upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(video.upload_group_id, {
+        $inc: { file_count: 1, total_size: video.size }
+      });
+    }
+
     return video;
   } else {
     // S3 path
     await s3Service.completeMultipartUpload(video.s3Key, uploadId, parts);
     video.status = 'Active';
     await video.save();
+
+    // Increment UploadGroup counters if group is specified
+    if (video.upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(video.upload_group_id, {
+        $inc: { file_count: 1, total_size: video.size }
+      });
+    }
+
     return video;
   }
 };

@@ -1,6 +1,7 @@
 const VideoFolder = require('../models/VideoFolder');
 const Video = require('../models/Video');
 const VideoShare = require('../models/VideoShare');
+const UploadGroup = require('../models/UploadGroup');
 const videoService = require('../services/videoService');
 const videoUploadService = require('../services/videoUploadService');
 const shareService = require('../services/shareService');
@@ -13,7 +14,7 @@ const path = require('path');
 // ─── VIDEO UPLOAD CONTROLLERS ────────────────────────────────────────────────
 const initiateUpload = async (req, res, next) => {
   try {
-    const { filename, mimeType, size, folderId } = req.body;
+    const { filename, mimeType, size, folderId, uploadBatchId, upload_group_id } = req.body;
     const ownerId = req.user.id;
     const hostUrl = `${req.protocol}://${req.get('host')}`;
 
@@ -23,7 +24,8 @@ const initiateUpload = async (req, res, next) => {
       mimeType,
       size,
       folderId,
-      hostUrl
+      hostUrl,
+      upload_group_id || null
     );
 
     res.status(200).json({
@@ -114,7 +116,7 @@ const abortUpload = async (req, res, next) => {
 // ─── VIDEO FOLDER CONTROLLERS ──────────────────────────────────────────────
 const createFolder = async (req, res, next) => {
   try {
-    const { name, parentFolder } = req.body;
+    const { name, parentFolder, uploadBatchId, upload_group_id } = req.body;
     const ownerId = req.user.id;
 
     if (!name) {
@@ -136,8 +138,15 @@ const createFolder = async (req, res, next) => {
       ownerId,
       name,
       parentFolder: parentFolder || null,
-      path
+      path,
+      uploadBatchId: uploadBatchId || null,
+      upload_group_id: upload_group_id || null
     });
+
+    // Mark the UploadGroup as containing folders
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(upload_group_id, { has_folders: true });
+    }
 
     res.status(201).json({
       status: 'success',

@@ -1,5 +1,6 @@
 const Folder = require('../models/Folder');
 const File = require('../models/File');
+const UploadGroup = require('../models/UploadGroup');
 const logger = require('../config/logger');
 const { logActivity } = require('../services/activityService');
 const { deleteFile } = require('../services/s3Service');
@@ -10,7 +11,7 @@ const { BadRequestError, ForbiddenError, NotFoundError } = require('../utils/err
  */
 const createFolder = async (req, res, next) => {
   try {
-    const { folder_name, parent_folder_id } = req.body;
+    const { folder_name, parent_folder_id, uploadBatchId, upload_group_id } = req.body;
     const userId = req.user.id;
 
     // Check parent folder ownership if parent_folder_id is provided
@@ -27,8 +28,15 @@ const createFolder = async (req, res, next) => {
     const folder = await Folder.create({
       user_id: userId,
       folder_name,
-      parent_folder_id: parent_folder_id || null
+      parent_folder_id: parent_folder_id || null,
+      uploadBatchId: uploadBatchId || null,
+      upload_group_id: upload_group_id || null
     });
+
+    // Mark the UploadGroup as containing folders
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(upload_group_id, { has_folders: true });
+    }
 
     res.status(201).json({
       status: 'success',
@@ -189,9 +197,49 @@ const deleteFolder = async (req, res, next) => {
   }
 };
 
+/**
+ * Get or create the user's Work folder.
+ * Uses upsert to atomically create if not exists.
+ */
+const getOrCreateWorkFolder = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    // Try to find existing Work folder
+    let workFolder = await Folder.findOne({ user_id: userId, folder_type: 'work' });
+
+    if (!workFolder) {
+      // Create the Work folder at root level
+      workFolder = await Folder.create({
+        user_id: userId,
+        folder_name: 'Work',
+        parent_folder_id: null,
+        folder_type: 'work'
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        folder: {
+          id: workFolder.id,
+          user_id: userId,
+          folder_name: workFolder.folder_name,
+          parent_folder_id: workFolder.parent_folder_id,
+          folder_type: workFolder.folder_type,
+          created_at: workFolder.created_at
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createFolder,
   getFolders,
   updateFolder,
-  deleteFolder
+  deleteFolder,
+  getOrCreateWorkFolder
 };

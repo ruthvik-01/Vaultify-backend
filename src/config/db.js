@@ -16,37 +16,15 @@ const connectDB = async () => {
   mongoose.set('strictQuery', false);
 
   if (mongoUri.toLowerCase() === 'in-memory' || mongoUri.toLowerCase() === 'memory') {
-    logger.info('Initializing in-memory MongoDB server for development...');
-    try {
-      const { MongoMemoryServer } = require('mongodb-memory-server');
-      const mongoServer = await MongoMemoryServer.create();
-      mongoUri = mongoServer.getUri();
-      logger.info(`In-memory MongoDB server started at: ${mongoUri}`);
-    } catch (err) {
-      logger.error('Failed to start in-memory MongoDB server:', err);
-      throw err;
-    }
+    throw new Error('In-memory MongoDB is no longer supported (mongodb-memory-server removed to fix deployment OOM). Please provide a valid MongoDB URI.');
   }
 
   try {
     await mongoose.connect(mongoUri);
     logger.info('MongoDB connected successfully.');
   } catch (error) {
-    if (process.env.NODE_ENV !== 'production') {
-      logger.warn(`Could not connect to database at ${mongoUri.split('@').pop() || mongoUri}.`);
-      logger.warn(`Error: ${error.message}`);
-      logger.warn('Falling back to in-memory MongoDB server for local development...');
-      try {
-        const { MongoMemoryServer } = require('mongodb-memory-server');
-        const mongoServer = await MongoMemoryServer.create();
-        const fallbackUri = mongoServer.getUri();
-        await mongoose.connect(fallbackUri);
-        logger.info(`Fallback in-memory MongoDB connected successfully at: ${fallbackUri}`);
-        return;
-      } catch (fallbackErr) {
-        logger.error('In-memory MongoDB fallback failed:', fallbackErr);
-      }
-    }
+    logger.warn(`Could not connect to database at ${mongoUri.split('@').pop() || mongoUri}.`);
+    logger.warn(`Error: ${error.message}`);
     throw error;
   }
 };

@@ -23,11 +23,7 @@ const initiateUpload = async (req, res, next) => {
 const completeUpload = async (req, res, next) => {
   try {
     const userId = req.user.id;
-<<<<<<< Updated upstream
-    const { videoId, uploadId, parts, folderId, filename, mimeType, size } = req.body;
-=======
-    const { videoId, uploadId, parts, folderId, filename, mimeType, size, uploadBatchId, relative_path } = req.body;
->>>>>>> Stashed changes
+    const { videoId, uploadId, parts, folderId, filename, mimeType, size, uploadBatchId, relative_path, upload_group_id } = req.body;
     
     const result = await videoMultipartService.completeVideoUpload(userId, {
       videoId,
@@ -37,13 +33,10 @@ const completeUpload = async (req, res, next) => {
       folderId,
       filename,
       mimeType,
-<<<<<<< Updated upstream
-      size
-=======
       size,
       uploadBatchId,
-      relative_path
->>>>>>> Stashed changes
+      relative_path,
+      upload_group_id
     });
 
     res.status(200).json({

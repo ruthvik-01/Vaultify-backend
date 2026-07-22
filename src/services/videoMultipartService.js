@@ -46,9 +46,6 @@ const initiateVideoUpload = async (userId, { filename, mimeType, size, folderId 
   }
 };
 
-<<<<<<< Updated upstream
-const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size }) => {
-=======
 const Folder = require('../models/Folder');
 const VideoFolder = require('../models/VideoFolder');
 
@@ -75,8 +72,7 @@ const checkIsWorkFolder = async (folderId) => {
   return false;
 };
 
-const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size, uploadBatchId, relative_path }) => {
->>>>>>> Stashed changes
+const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size, uploadBatchId, relative_path, upload_group_id }) => {
   try {
     if (!objectKey) {
       throw new BadRequestError('S3 object key is missing before completing multipart upload.');
@@ -87,6 +83,8 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
     await s3Service.completeMultipartUpload(objectKey, uploadId, parts);
 
     const bucketName = process.env.AWS_S3_BUCKET_NAME || 'gd-miniproject';
+
+    const isWork = await checkIsWorkFolder(folderId);
 
     // Store metadata in MongoDB only after successful S3 completion
     const video = await Video.create({
@@ -99,14 +97,11 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
       folderId: folderId || null,
       s3Key: objectKey,
       bucket: bucketName,
-<<<<<<< Updated upstream
-      status: 'Active'
-=======
       status: 'Active',
       is_work_submission: isWork,
       uploadBatchId: uploadBatchId || null,
-      relative_path: relative_path || null
->>>>>>> Stashed changes
+      relative_path: relative_path || null,
+      upload_group_id: upload_group_id || null
     });
 
     logger.info(`Upload Completed: Video metadata saved successfully in DB for video ID ${video._id}`);
