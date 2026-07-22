@@ -65,9 +65,23 @@ const ensureOwnedFolder = async (folderId, userId) => {
     return null;
   }
 
-  const folder = await Folder.findById(folderId);
+  let folder = await Folder.findById(folderId);
   if (!folder) {
-    throw new NotFoundError('Folder not found.');
+    const VideoFolder = require('../models/VideoFolder');
+    const videoFolder = await VideoFolder.findById(folderId);
+    if (!videoFolder) {
+      throw new NotFoundError('Folder not found.');
+    }
+    if (videoFolder.ownerId.toString() !== userId.toString()) {
+      throw new ForbiddenError('Access denied: you do not own this folder.');
+    }
+    return {
+      id: videoFolder._id.toString(),
+      _id: videoFolder._id,
+      user_id: videoFolder.ownerId,
+      parent_folder_id: videoFolder.parentFolder,
+      folder_name: videoFolder.name
+    };
   }
 
   if (folder.user_id.toString() !== userId.toString()) {
@@ -300,7 +314,7 @@ const downloadFile = async (req, res, next) => {
   try {
     const file = await findOwnedFile(req.params.id, req.user.id);
     const disposition = req.query.disposition === 'inline' ? 'inline' : 'attachment';
-    const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 900, disposition);
+    const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 900, disposition, file.file_type);
 
     await logActivity(req.user.id, 'Download', { fileId: file.id, fileName: file.file_name }, req.ip);
 
@@ -410,7 +424,7 @@ const getSharedFile = async (req, res, next) => {
 
       if (videoShare.videoId) {
         const video = videoShare.videoId;
-        const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600, disposition);
+        const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600, disposition, video.mimeType);
 
         await logActivity(video.ownerId, 'Download', { videoId: video._id, viaShare: videoShare.id, status: 'public_video' }, req.ip);
 
@@ -426,15 +440,33 @@ const getSharedFile = async (req, res, next) => {
           }
         });
       } else if (videoShare.folderId) {
-        const folder = videoShare.folderId;
-        const videos = await Video.find({ folderId: folder._id, status: 'Active' });
-        const subfolders = await VideoFolder.find({ parentFolder: folder._id });
+        const rootFolder = videoShare.folderId;
+        const requestedFolderId = req.query.folder_id || rootFolder._id.toString();
+
+        const getVideoDescendantIds = async (rootId) => {
+          let ids = [rootId.toString()];
+          let currentParentIds = [rootId.toString()];
+          while (currentParentIds.length > 0) {
+            const children = await VideoFolder.find({ parentFolder: { $in: currentParentIds } }).lean();
+            currentParentIds = children.map(c => c._id.toString());
+            ids = ids.concat(currentParentIds);
+          }
+          return ids;
+        };
+
+        const descendantIds = await getVideoDescendantIds(rootFolder._id);
+        if (!descendantIds.includes(requestedFolderId.toString())) {
+          return next(new ForbiddenError('Access denied: folder is not within the shared directory tree.'));
+        }
+
+        const videos = await Video.find({ folderId: requestedFolderId, status: 'Active' });
+        const subfolders = await VideoFolder.find({ parentFolder: requestedFolderId });
 
         return res.status(200).json({
           status: 'success',
           data: {
             type: 'folder',
-            file_name: folder.name,
+            file_name: rootFolder.name,
             files: videos.map(v => ({
               id: v._id,
               name: v.originalName || v.filename,
@@ -462,7 +494,7 @@ const getSharedFile = async (req, res, next) => {
 
     if (sharedLink.file_id) {
       const file = sharedLink.file_id;
-      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600, disposition);
+      const presignedUrl = await getPreSignedDownloadUrl(file.s3_key, file.original_name, 600, disposition, file.file_type);
 
       await logActivity(file.user_id, 'Download', { fileId: file.id, viaShare: sharedLink.id, status: 'public' }, req.ip);
 
@@ -477,11 +509,29 @@ const getSharedFile = async (req, res, next) => {
         }
       });
     } else if (sharedLink.folder_id) {
-      const folder = sharedLink.folder_id;
-      const files = await File.find({ folder_id: folder.id });
+      const rootFolder = sharedLink.folder_id;
+      const requestedFolderId = req.query.folder_id || rootFolder.id;
+
+      const getDescendantFolderIds = async (rootId) => {
+        let ids = [rootId.toString()];
+        let currentParentIds = [rootId.toString()];
+        while (currentParentIds.length > 0) {
+          const children = await Folder.find({ parent_folder_id: { $in: currentParentIds } }).lean();
+          currentParentIds = children.map(c => c._id.toString());
+          ids = ids.concat(currentParentIds);
+        }
+        return ids;
+      };
+
+      const descendantIds = await getDescendantFolderIds(rootFolder.id);
+      if (!descendantIds.includes(requestedFolderId.toString())) {
+        return next(new ForbiddenError('Access denied: folder is not within the shared directory tree.'));
+      }
+
+      const files = await File.find({ folder_id: requestedFolderId });
       
       const Video = require('../models/Video');
-      const videos = await Video.find({ folderId: folder.id, status: 'Active' });
+      const videos = await Video.find({ folderId: requestedFolderId, status: 'Active' });
 
       const serializedFiles = [
         ...files.map(serializeFile),
@@ -505,13 +555,13 @@ const getSharedFile = async (req, res, next) => {
         }))
       ];
 
-      const subfolders = await Folder.find({ parent_folder_id: folder.id });
+      const subfolders = await Folder.find({ parent_folder_id: requestedFolderId });
 
       res.status(200).json({
         status: 'success',
         data: {
           type: 'folder',
-          file_name: folder.folder_name,
+          file_name: rootFolder.folder_name,
           files: serializedFiles,
           folders: subfolders.map(f => {
             const folderObj = f.toObject();
@@ -540,7 +590,21 @@ const getSharedFolderFile = async (req, res, next) => {
         return next(new ForbiddenError('This shared folder link has expired.'));
       }
       
-      let file = await File.findOne({ _id: fileId, folder_id: sharedLink.folder_id._id });
+      // Build descendant IDs for recursive security check
+      const getAllDescendantFolderIds = async (rootId) => {
+        let ids = [rootId.toString()];
+        let currentParentIds = [rootId.toString()];
+        while (currentParentIds.length > 0) {
+          const children = await Folder.find({ parent_folder_id: { $in: currentParentIds } }).lean();
+          currentParentIds = children.map(c => c._id.toString());
+          ids = ids.concat(currentParentIds);
+        }
+        return ids;
+      };
+
+      const allowedFolderIds = await getAllDescendantFolderIds(sharedLink.folder_id._id);
+
+      let file = await File.findOne({ _id: fileId, folder_id: { $in: allowedFolderIds } });
       let isVideo = false;
       let s3Key, originalName, mimeType, size, ownerId;
 
@@ -552,7 +616,7 @@ const getSharedFolderFile = async (req, res, next) => {
         ownerId = file.user_id;
       } else {
         const Video = require('../models/Video');
-        const video = await Video.findOne({ _id: fileId, folderId: sharedLink.folder_id._id, status: 'Active' });
+        const video = await Video.findOne({ _id: fileId, folderId: { $in: allowedFolderIds }, status: 'Active' });
         if (!video) {
           return next(new NotFoundError('File not found in this shared folder.'));
         }
@@ -567,9 +631,9 @@ const getSharedFolderFile = async (req, res, next) => {
       let presignedUrl;
       if (isVideo) {
         const s3Service = require('../services/s3Service');
-        presignedUrl = await s3Service.getPreSignedDownloadUrl(s3Key, originalName, 600, disposition);
+        presignedUrl = await s3Service.getPreSignedDownloadUrl(s3Key, originalName, 600, disposition, mimeType);
       } else {
-        presignedUrl = await getPreSignedDownloadUrl(s3Key, originalName, 600, disposition);
+        presignedUrl = await getPreSignedDownloadUrl(s3Key, originalName, 600, disposition, mimeType);
       }
 
       await logActivity(ownerId, 'Download', { 
@@ -600,12 +664,26 @@ const getSharedFolderFile = async (req, res, next) => {
         return next(new ForbiddenError('This shared folder link has expired.'));
       }
 
-      const video = await Video.findOne({ _id: fileId, folderId: videoShare.folderId._id, status: 'Active' });
+      // Build descendant IDs for VideoFolder recursive security check
+      const getAllVideoDescendantIds = async (rootId) => {
+        let ids = [rootId.toString()];
+        let currentParentIds = [rootId.toString()];
+        while (currentParentIds.length > 0) {
+          const children = await VideoFolder.find({ parentFolder: { $in: currentParentIds } }).lean();
+          currentParentIds = children.map(c => c._id.toString());
+          ids = ids.concat(currentParentIds);
+        }
+        return ids;
+      };
+
+      const allowedVideoFolderIds = await getAllVideoDescendantIds(videoShare.folderId._id);
+
+      const video = await Video.findOne({ _id: fileId, folderId: { $in: allowedVideoFolderIds }, status: 'Active' });
       if (!video) {
         return next(new NotFoundError('Video not found in this shared folder.'));
       }
 
-      const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600, disposition);
+      const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600, disposition, video.mimeType);
       await logActivity(video.ownerId, 'Download', { videoId: video._id, viaShare: videoShare.id, status: 'public_video_folder' }, req.ip);
 
       return res.status(200).json({

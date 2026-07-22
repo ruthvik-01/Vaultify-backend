@@ -41,16 +41,22 @@ const deleteFile = async (key) => {
   logger.info(`Deleted object from S3. Key: ${key}`);
 };
 
-const getPreSignedDownloadUrl = async (key, originalName, expiresInSeconds = 900, disposition = 'attachment') => {
+const getPreSignedDownloadUrl = async (key, originalName, expiresInSeconds = 900, disposition = 'attachment', mimeType = null) => {
   const contentDisposition = disposition === 'inline'
     ? 'inline'
     : `attachment; filename="${encodeURIComponent(originalName)}"`;
 
-  const command = new GetObjectCommand({
+  const params = {
     Bucket: BUCKET_NAME,
     Key: key,
     ResponseContentDisposition: contentDisposition
-  });
+  };
+
+  if (mimeType) {
+    params.ResponseContentType = mimeType;
+  }
+
+  const command = new GetObjectCommand(params);
 
   return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 };

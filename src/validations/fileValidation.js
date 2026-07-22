@@ -51,6 +51,7 @@ const initiateUploadSchema = Joi.object({
     'number.min': 'File size must be at least 1 byte.'
   }),
   folder_id: objectId.allow(null, '').optional(),
+  upload_group_id: objectId.allow(null, '').optional(),
   uploadBatchId: Joi.string().trim().allow(null, '').optional(),
   relative_path: Joi.string().trim().allow(null, '').optional()
 });
@@ -74,9 +75,9 @@ const completeUploadSchema = Joi.object({
   file_type: Joi.string().trim().required(),
   file_size: Joi.number().integer().min(1).required(),
   folder_id: objectId.allow(null, '').optional(),
+  upload_group_id: objectId.allow(null, '').optional(),
   uploadBatchId: Joi.string().trim().allow(null, '').optional(),
-  relative_path: Joi.string().trim().allow(null, '').optional(),
-  upload_group_id: objectId.allow(null, '').optional()
+  relative_path: Joi.string().trim().allow(null, '').optional()
 });
 
 const abortUploadSchema = Joi.object({

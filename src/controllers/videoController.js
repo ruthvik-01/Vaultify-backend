@@ -225,10 +225,22 @@ const deleteFolder = async (req, res, next) => {
     };
     const folderIdsToDelete = getDescendants(folder._id);
 
-    // Get and delete all videos in these folders
+    // Delete all videos in these folders (includes S3 cleanup via videoService)
     const videos = await Video.find({ ownerId, folderId: { $in: folderIdsToDelete } });
     for (const video of videos) {
       await videoService.deleteVideo(ownerId, video._id);
+    }
+
+    // Also delete any standard File documents in these folders (cross-collection cleanup)
+    const File = require('../models/File');
+    const filesInFolders = await File.find({ user_id: ownerId, folder_id: { $in: folderIdsToDelete } });
+    for (const file of filesInFolders) {
+      try {
+        await s3Service.deleteFile(file.s3_key);
+      } catch (s3Err) {
+        logger.warn(`S3 delete failed for file ${file._id}: ${s3Err.message}`);
+      }
+      await File.findByIdAndDelete(file._id);
     }
 
     // Delete folders from DB

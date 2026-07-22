@@ -182,6 +182,18 @@ const deleteFolder = async (req, res, next) => {
     // Delete Files in DB
     await File.deleteMany({ folder_id: { $in: folderIds } });
 
+    // Also cascade-delete any Video documents in these folders (cross-collection cleanup)
+    const Video = require('../models/Video');
+    const videoService = require('../services/videoService');
+    const videosInFolders = await Video.find({ folderId: { $in: folderIds } });
+    for (const video of videosInFolders) {
+      try {
+        await videoService.deleteVideo(video.ownerId, video._id);
+      } catch (videoErr) {
+        logger.error(`Failed to delete video ${video._id} during folder delete: ${videoErr.message}`);
+      }
+    }
+
     // Delete parent folder and its subfolders from DB
     await Folder.deleteMany({ _id: { $in: folderIds } });
 

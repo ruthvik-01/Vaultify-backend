@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const s3Service = require('./s3Service');
 const Video = require('../models/Video');
+const UploadGroup = require('../models/UploadGroup');
 const logger = require('../config/logger');
 const { BadRequestError } = require('../utils/errors');
 
@@ -103,6 +104,15 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
       relative_path: relative_path || null,
       upload_group_id: upload_group_id || null
     });
+
+    // Update UploadGroup stats if provided
+    if (upload_group_id) {
+      await UploadGroup.findByIdAndUpdate(
+        upload_group_id,
+        { $inc: { file_count: 1, total_size: size || 0 } },
+        { new: false }
+      ).catch(err => logger.warn(`UploadGroup stat update failed for ${upload_group_id}: ${err.message}`));
+    }
 
     logger.info(`Upload Completed: Video metadata saved successfully in DB for video ID ${video._id}`);
     return video;
