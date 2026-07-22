@@ -13,7 +13,14 @@ const videoSchema = new mongoose.Schema({
   status: { type: String, enum: ['Uploading', 'Active', 'Failed'], default: 'Uploading' },
   shareToken: { type: String, default: null, index: true },
   publicUrl: { type: String, default: null },
+<<<<<<< Updated upstream
   isShared: { type: Boolean, default: false }
+=======
+  isShared: { type: Boolean, default: false },
+  is_work_submission: { type: Boolean, default: false },
+  uploadBatchId: { type: String, default: null },
+  relative_path: { type: String, default: null }
+>>>>>>> Stashed changes
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });

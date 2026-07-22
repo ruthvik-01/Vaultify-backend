@@ -6,7 +6,7 @@ const adminSchema = new mongoose.Schema({
   password_hash: { type: String, required: true },
   role: { type: String, enum: ['admin', 'superadmin'], default: 'admin' },
   last_login: { type: Date, default: null },
-  session_timeout: { type: Number, default: 30 },
+  session_timeout: { type: Number, default: 10080 },
   email_alerts: { type: Boolean, default: true },
   daily_digest: { type: Boolean, default: true },
   audit_retention: { type: Number, default: 90 },

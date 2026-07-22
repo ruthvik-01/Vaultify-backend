@@ -46,7 +46,37 @@ const initiateVideoUpload = async (userId, { filename, mimeType, size, folderId 
   }
 };
 
+<<<<<<< Updated upstream
 const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size }) => {
+=======
+const Folder = require('../models/Folder');
+const VideoFolder = require('../models/VideoFolder');
+
+const checkIsWorkFolder = async (folderId) => {
+  if (!folderId) return false;
+  let currentId = folderId;
+  let depth = 0;
+  while (currentId && depth < 20) {
+    const folder = await Folder.findById(currentId).select('folder_type parent_folder_id').lean().catch(() => null);
+    if (folder) {
+      if (folder.folder_type === 'work') return true;
+      currentId = folder.parent_folder_id;
+      depth++;
+      continue;
+    }
+    const vFolder = await VideoFolder.findById(currentId).select('parentFolder').lean().catch(() => null);
+    if (vFolder) {
+      currentId = vFolder.parentFolder;
+      depth++;
+      continue;
+    }
+    break;
+  }
+  return false;
+};
+
+const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts, folderId, filename, mimeType, size, uploadBatchId, relative_path }) => {
+>>>>>>> Stashed changes
   try {
     if (!objectKey) {
       throw new BadRequestError('S3 object key is missing before completing multipart upload.');
@@ -69,7 +99,14 @@ const completeVideoUpload = async (userId, { videoId, uploadId, objectKey, parts
       folderId: folderId || null,
       s3Key: objectKey,
       bucket: bucketName,
+<<<<<<< Updated upstream
       status: 'Active'
+=======
+      status: 'Active',
+      is_work_submission: isWork,
+      uploadBatchId: uploadBatchId || null,
+      relative_path: relative_path || null
+>>>>>>> Stashed changes
     });
 
     logger.info(`Upload Completed: Video metadata saved successfully in DB for video ID ${video._id}`);

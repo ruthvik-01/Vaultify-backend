@@ -90,7 +90,11 @@ const findOwnedFile = async (fileId, userId) => {
 const uploadFileController = async (req, res, next) => {
   try {
     const userId = req.user.id;
+<<<<<<< Updated upstream
     const { folder_id } = req.body;
+=======
+    const { folder_id, uploadBatchId, relative_path } = req.body;
+>>>>>>> Stashed changes
 
     if (!req.file) {
       return next(new BadRequestError('No file uploaded.'));
@@ -112,7 +116,14 @@ const uploadFileController = async (req, res, next) => {
       original_name: file.originalname,
       file_type: file.mimetype,
       file_size: file.size,
+<<<<<<< Updated upstream
       s3_key: s3Key
+=======
+      s3_key: s3Key,
+      is_work_submission: workFlag,
+      uploadBatchId: uploadBatchId || null,
+      relative_path: relative_path || null
+>>>>>>> Stashed changes
     });
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name }, req.ip);
@@ -700,7 +711,11 @@ const initiateUploadController = async (req, res, next) => {
 const completeUploadController = async (req, res, next) => {
   try {
     const userId = req.user.id;
+<<<<<<< Updated upstream
     const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id } = req.body;
+=======
+    const { upload_id, s3_key, parts, file_name, file_type, file_size, folder_id, uploadBatchId, relative_path } = req.body;
+>>>>>>> Stashed changes
 
     if (!upload_id || !s3_key || !parts || !Array.isArray(parts) || parts.length === 0) {
       return next(new BadRequestError('upload_id, s3_key, and parts[] are required.'));
@@ -717,7 +732,14 @@ const completeUploadController = async (req, res, next) => {
       original_name: file_name,
       file_type: file_type,
       file_size: file_size,
+<<<<<<< Updated upstream
       s3_key: s3_key
+=======
+      s3_key: s3_key,
+      is_work_submission: workFlag,
+      uploadBatchId: uploadBatchId || null,
+      relative_path: relative_path || null
+>>>>>>> Stashed changes
     });
 
     await logActivity(userId, 'Upload', { fileId: createdFile.id, fileName: createdFile.file_name, method: 'multipart' }, req.ip);

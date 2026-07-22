@@ -52,6 +52,7 @@ router.delete('/teams/:teamName/uploads', adminController.deleteTeamUploads);
 router.get('/uploads', adminController.getUploads);
 router.delete('/uploads/:id', adminController.deleteUpload);
 router.get('/uploads/:id/preview', adminController.getUploadPreviewUrl);
+router.post('/uploads/:id/share', adminController.createUploadShare);
 
 // 6. Activity Feed
 router.get('/activity', adminController.getActivityFeed);

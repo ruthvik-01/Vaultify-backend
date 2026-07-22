@@ -10,6 +10,41 @@ const Folder = require('../models/Folder');
 const ActivityLog = require('../models/ActivityLog');
 const { parseAndImportExcel } = require('../services/excelImportService');
 const { deleteFile, getPreSignedDownloadUrl } = require('../services/s3Service');
+const VideoFolder = require('../models/VideoFolder');
+
+function detectFileType(mimeType, fileName) {
+  const safeMime = (mimeType || '').toLowerCase();
+  const ext = (fileName || '').split('.').pop().toLowerCase();
+
+  if (safeMime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+    return 'Image';
+  }
+  if (safeMime.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) {
+    return 'Video';
+  }
+  if (safeMime.startsWith('audio/') || ['mp3', 'wav', 'aac'].includes(ext)) {
+    return 'Audio';
+  }
+  if (safeMime === 'application/pdf' || ext === 'pdf') {
+    return 'PDF';
+  }
+  if (safeMime.includes('word') || safeMime.includes('officedocument.wordprocessingml') || ['doc', 'docx'].includes(ext)) {
+    return 'Word';
+  }
+  if (safeMime.includes('excel') || safeMime.includes('spreadsheet') || safeMime.includes('csv') || ['xls', 'xlsx'].includes(ext)) {
+    return 'Excel';
+  }
+  if (safeMime.includes('presentation') || safeMime.includes('powerpoint') || ['ppt', 'pptx'].includes(ext)) {
+    return 'PowerPoint';
+  }
+  if (safeMime.includes('zip') || safeMime.includes('x-rar') || safeMime.includes('x-7z') || safeMime.includes('archive') || safeMime.includes('compressed') || ['zip', 'rar', '7z'].includes(ext)) {
+    return 'ZIP';
+  }
+  if (safeMime.startsWith('text/') || ['txt', 'log', 'json', 'js', 'html', 'css'].includes(ext)) {
+    return 'Text';
+  }
+  return 'Other';
+}
 
 // Seed default Admin user on startup if admins collection is empty
 async function ensureAdminUser() {
@@ -23,7 +58,7 @@ async function ensureAdminUser() {
         email: 'admin@vaultify.com',
         password_hash: passwordHash,
         role: 'admin',
-        session_timeout: 30,
+        session_timeout: 10080,
         email_alerts: true,
         daily_digest: true,
         audit_retention: 90,
@@ -61,7 +96,7 @@ exports.adminLogin = async (req, res) => {
         email: cleanEmail,
         password_hash: hash,
         role: 'admin',
-        session_timeout: 30,
+        session_timeout: 10080,
         email_alerts: true,
         daily_digest: true,
         audit_retention: 90,
@@ -82,7 +117,7 @@ exports.adminLogin = async (req, res) => {
     // Non-blocking update of login timestamp
     Admin.updateOne(
       { _id: admin._id },
-      { $set: { last_login: new Date(), last_activity: new Date() } }
+      { $set: { last_login: new Date(), last_activity: new Date(), session_timeout: 10080 } }
     ).catch(() => {});
 
     const secret = process.env.JWT_SECRET || 'vaultify_jwt_secret_dev_key_2026';
@@ -180,6 +215,7 @@ exports.getDashboardStats = async (req, res) => {
         { $match: { ownerId: { $in: userIds } } },
         { $group: { _id: null, totalSize: { $sum: '$size' }, count: { $sum: 1 } } }
       ]),
+<<<<<<< Updated upstream
       File.find({ user_id: { $in: userIds } })
         .select('user_id file_name original_name file_size created_at file_type s3_key')
         .sort({ created_at: -1 })
@@ -187,6 +223,15 @@ exports.getDashboardStats = async (req, res) => {
         .lean(),
       Video.find({ ownerId: { $in: userIds } })
         .select('ownerId title filename originalName size createdAt s3Key')
+=======
+      File.find({ user_id: { $in: userIds }, is_work_submission: true })
+        .select('user_id file_name original_name file_size created_at file_type s3_key folder_id')
+        .sort({ created_at: -1 })
+        .limit(10)
+        .lean(),
+      Video.find({ ownerId: { $in: userIds }, is_work_submission: true })
+        .select('ownerId title filename originalName size createdAt s3Key folderId mimeType')
+>>>>>>> Stashed changes
         .sort({ createdAt: -1 })
         .limit(10)
         .lean(),
@@ -199,17 +244,37 @@ exports.getDashboardStats = async (req, res) => {
     const totalUploads = totalFiles + totalVideos;
     const totalStorageUsed = (fileStorageResult[0]?.totalSize || 0) + (videoStorageResult[0]?.totalSize || 0);
 
+    // Resolve folder names for recent uploads
+    const fileFolderIds = recentFiles.map(f => f.folder_id).filter(Boolean);
+    const videoFolderIds = recentVideos.map(v => v.folderId).filter(Boolean);
+
+    const [foldersList, videoFoldersList] = await Promise.all([
+      Folder.find({ _id: { $in: fileFolderIds } }).select('_id folder_name').lean(),
+      VideoFolder.find({ _id: { $in: videoFolderIds } }).select('_id name').lean()
+    ]);
+
+    const folderMap = {};
+    foldersList.forEach(f => { folderMap[f._id.toString()] = f.folder_name; });
+    videoFoldersList.forEach(vf => { folderMap[vf._id.toString()] = vf.name; });
+
     const formattedFiles = recentFiles.map(f => {
       const u = userMap[f.user_id ? f.user_id.toString() : ''];
       const s = u ? studentMap[u.email.toLowerCase()] : null;
+      let folderName = 'General';
+      if (f.folder_id) {
+        folderName = folderMap[f.folder_id.toString()] || 'Unknown Folder';
+      }
       return {
         id: f._id.toString(),
         fileName: f.file_name || f.original_name,
+        folder: folderName,
         student: s?.studentName || u?.name || 'Monitored Student',
+        studentEmail: u?.email || '',
         team: s?.team || 'General',
         size: f.file_size || 0,
         uploadDate: f.created_at || new Date().toISOString(),
-        fileType: f.file_type || 'file',
+        mimeType: f.file_type || 'application/octet-stream',
+        fileType: detectFileType(f.file_type, f.file_name || f.original_name),
         s3Key: f.s3_key
       };
     });
@@ -217,14 +282,21 @@ exports.getDashboardStats = async (req, res) => {
     const formattedVideos = recentVideos.map(v => {
       const u = userMap[v.ownerId ? v.ownerId.toString() : ''];
       const s = u ? studentMap[u.email.toLowerCase()] : null;
+      let folderName = 'General';
+      if (v.folderId) {
+        folderName = folderMap[v.folderId.toString()] || 'Unknown Folder';
+      }
       return {
         id: v._id.toString(),
         fileName: v.title || v.filename || v.originalName || 'Video',
+        folder: folderName,
         student: s?.studentName || u?.name || 'Monitored Student',
+        studentEmail: u?.email || '',
         team: s?.team || 'General',
         size: v.size || 0,
         uploadDate: v.createdAt || new Date().toISOString(),
-        fileType: 'video',
+        mimeType: v.mimeType || 'video/mp4',
+        fileType: detectFileType(v.mimeType, v.title || v.filename || v.originalName),
         s3Key: v.s3Key
       };
     });
@@ -864,7 +936,18 @@ exports.getUploads = async (req, res) => {
     }
 
     if (fileType && fileType !== 'All') {
-      matchStage.fileType = fileType.toLowerCase();
+      const lowerType = fileType.toLowerCase();
+      if (lowerType === 'video') {
+        matchStage.fileType = 'Video';
+      } else if (lowerType === 'image') {
+        matchStage.fileType = 'Image';
+      } else if (lowerType === 'document') {
+        matchStage.fileType = { $in: ['PDF', 'Word', 'Excel', 'PowerPoint', 'Text'] };
+      } else if (lowerType === 'archive') {
+        matchStage.fileType = 'ZIP';
+      } else {
+        matchStage.fileType = fileType.charAt(0).toUpperCase() + fileType.slice(1);
+      }
     }
 
     if (sizeCategory && sizeCategory !== 'All') {
@@ -971,16 +1054,99 @@ exports.getUploads = async (req, res) => {
       },
       { $unwind: { path: '$studentInfo', preserveNullAndEmptyArrays: true } },
       {
+        $lookup: {
+          from: 'folders',
+          localField: 'folder_id',
+          foreignField: '_id',
+          as: 'folderInfo'
+        }
+      },
+      { $unwind: { path: '$folderInfo', preserveNullAndEmptyArrays: true } },
+      {
         $project: {
           id: { $toString: '$_id' },
           fileName: '$file_name',
-          folder: { $ifNull: ['$folder_name', 'General'] },
+          folder: {
+            $cond: {
+              if: { $eq: [{ $ifNull: ['$folder_id', null] }, null] },
+              then: 'General',
+              else: { $ifNull: ['$folderInfo.folder_name', 'Unknown Folder'] }
+            }
+          },
           student: { $ifNull: ['$studentInfo.studentName', { $ifNull: ['$user.name', 'Monitored Student'] }] },
           studentEmail: { $ifNull: ['$user.email', ''] },
           team: { $ifNull: ['$studentInfo.team', 'General'] },
           size: '$file_size',
           uploadDate: '$created_at',
-          fileType: '$file_type'
+          mimeType: '$file_type',
+          fileType: {
+            $switch: {
+              branches: [
+                {
+                  case: { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^image/', options: 'i' } },
+                  then: 'Image'
+                },
+                {
+                  case: { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^video/', options: 'i' } },
+                  then: 'Video'
+                },
+                {
+                  case: { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^audio/', options: 'i' } },
+                  then: 'Audio'
+                },
+                {
+                  case: { $eq: [{ $ifNull: ['$file_type', ''] }, 'application/pdf'] },
+                  then: 'PDF'
+                },
+                {
+                  case: {
+                    $or: [
+                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'word|officedocument.wordprocessingml', options: 'i' } },
+                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(doc|docx)$', options: 'i' } }
+                    ]
+                  },
+                  then: 'Word'
+                },
+                {
+                  case: {
+                    $or: [
+                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'excel|spreadsheet|csv', options: 'i' } },
+                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(xls|xlsx)$', options: 'i' } }
+                    ]
+                  },
+                  then: 'Excel'
+                },
+                {
+                  case: {
+                    $or: [
+                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'presentation|powerpoint', options: 'i' } },
+                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(ppt|pptx)$', options: 'i' } }
+                    ]
+                  },
+                  then: 'PowerPoint'
+                },
+                {
+                  case: {
+                    $or: [
+                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'zip|x-rar|x-7z|archive|compressed', options: 'i' } },
+                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(zip|rar|7z)$', options: 'i' } }
+                    ]
+                  },
+                  then: 'ZIP'
+                },
+                {
+                  case: {
+                    $or: [
+                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^text/', options: 'i' } },
+                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(txt|log|json|js|html|css)$', options: 'i' } }
+                    ]
+                  },
+                  then: 'Text'
+                }
+              ],
+              default: 'Other'
+            }
+          }
         }
       },
       {
@@ -1019,16 +1185,99 @@ exports.getUploads = async (req, res) => {
             },
             { $unwind: { path: '$studentInfo', preserveNullAndEmptyArrays: true } },
             {
+              $lookup: {
+                from: 'videofolders',
+                localField: 'folderId',
+                foreignField: '_id',
+                as: 'videoFolderInfo'
+              }
+            },
+            { $unwind: { path: '$videoFolderInfo', preserveNullAndEmptyArrays: true } },
+            {
               $project: {
                 id: { $toString: '$_id' },
                 fileName: { $ifNull: ['$title', { $ifNull: ['$originalName', { $ifNull: ['$filename', 'Video Submissions'] }] }] },
-                folder: { $literal: 'Videos' },
+                folder: {
+                  $cond: {
+                    if: { $eq: [{ $ifNull: ['$folderId', null] }, null] },
+                    then: 'General',
+                    else: { $ifNull: ['$videoFolderInfo.name', 'Unknown Folder'] }
+                  }
+                },
                 student: { $ifNull: ['$studentInfo.studentName', { $ifNull: ['$user.name', 'Monitored Student'] }] },
                 studentEmail: { $ifNull: ['$user.email', ''] },
                 team: { $ifNull: ['$studentInfo.team', 'General'] },
                 size: '$size',
                 uploadDate: '$createdAt',
-                fileType: { $literal: 'video' }
+                mimeType: '$mimeType',
+                fileType: {
+                  $switch: {
+                    branches: [
+                      {
+                        case: { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^image/', options: 'i' } },
+                        then: 'Image'
+                      },
+                      {
+                        case: { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^video/', options: 'i' } },
+                        then: 'Video'
+                      },
+                      {
+                        case: { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^audio/', options: 'i' } },
+                        then: 'Audio'
+                      },
+                      {
+                        case: { $eq: [{ $ifNull: ['$mimeType', ''] }, 'application/pdf'] },
+                        then: 'PDF'
+                      },
+                      {
+                        case: {
+                          $or: [
+                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'word|officedocument.wordprocessingml', options: 'i' } },
+                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(doc|docx)$', options: 'i' } }
+                          ]
+                        },
+                        then: 'Word'
+                      },
+                      {
+                        case: {
+                          $or: [
+                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'excel|spreadsheet|csv', options: 'i' } },
+                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(xls|xlsx)$', options: 'i' } }
+                          ]
+                        },
+                        then: 'Excel'
+                      },
+                      {
+                        case: {
+                          $or: [
+                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'presentation|powerpoint', options: 'i' } },
+                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(ppt|pptx)$', options: 'i' } }
+                          ]
+                        },
+                        then: 'PowerPoint'
+                      },
+                      {
+                        case: {
+                          $or: [
+                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'zip|x-rar|x-7z|archive|compressed', options: 'i' } },
+                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(zip|rar|7z)$', options: 'i' } }
+                          ]
+                        },
+                        then: 'ZIP'
+                      },
+                      {
+                        case: {
+                          $or: [
+                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^text/', options: 'i' } },
+                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(txt|log|json|js|html|css)$', options: 'i' } }
+                          ]
+                        },
+                        then: 'Text'
+                      }
+                    ],
+                    default: 'Other'
+                  }
+                }
               }
             }
           ]
@@ -1075,7 +1324,7 @@ exports.deleteUpload = async (req, res) => {
     let deleted = false;
     let fileName = '';
 
-    if (type === 'video') {
+    if ((type || '').toLowerCase() === 'video') {
       const video = await Video.findById(id).select('title filename originalName s3Key').lean();
       if (video) {
         fileName = video.title || video.filename || video.originalName;
@@ -1118,12 +1367,12 @@ exports.deleteUpload = async (req, res) => {
 exports.getUploadPreviewUrl = async (req, res) => {
   try {
     const { id } = req.params;
-    const { type } = req.query; // 'video' or 'file'
+    const { type, disposition } = req.query; // 'video' or 'file'
 
     let s3Key = '';
     let fileName = '';
 
-    if (type === 'video') {
+    if ((type || '').toLowerCase() === 'video') {
       const video = await Video.findById(id).select('s3Key title filename originalName').lean();
       if (video) {
         s3Key = video.s3Key;
@@ -1141,13 +1390,65 @@ exports.getUploadPreviewUrl = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Upload record not found.' });
     }
 
-    const disposition = 'inline';
-    const presignedUrl = await getPreSignedDownloadUrl(s3Key, fileName, 900, disposition);
+    const safeDisposition = disposition || 'inline';
+    const presignedUrl = await getPreSignedDownloadUrl(s3Key, fileName, 900, safeDisposition);
 
     res.status(200).json({
       success: true,
       status: 'success',
       download_url: presignedUrl
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Admin Generate Share Link - POST /admin/uploads/:id/share
+ */
+exports.createUploadShare = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type } = req.query; // 'video' or 'file'
+    const normalizedType = (type || '').toLowerCase();
+
+    const crypto = require('crypto');
+    let shareToken = '';
+
+    if (normalizedType === 'video') {
+      const video = await Video.findById(id);
+      if (!video) {
+        return res.status(404).json({ success: false, message: 'Video record not found.' });
+      }
+      if (!video.shareToken) {
+        video.shareToken = crypto.randomBytes(16).toString('hex');
+        video.isShared = true;
+        await video.save();
+      }
+      shareToken = video.shareToken;
+    } else {
+      const SharedLink = require('../models/SharedLink');
+      const file = await File.findById(id);
+      if (!file) {
+        return res.status(404).json({ success: false, message: 'File record not found.' });
+      }
+      let sharedLink = await SharedLink.findOne({ file_id: id });
+      if (!sharedLink) {
+        const token = crypto.randomBytes(32).toString('hex');
+        sharedLink = await SharedLink.create({
+          file_id: id,
+          token,
+          permission: 'read',
+          expiry_date: null
+        });
+      }
+      shareToken = sharedLink.token;
+    }
+
+    res.status(200).json({
+      success: true,
+      shareToken,
+      shareUrl: `${req.protocol}://${req.get('host')}/share/${shareToken}`
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

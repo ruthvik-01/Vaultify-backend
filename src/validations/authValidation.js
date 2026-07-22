@@ -33,7 +33,9 @@ const updateProfileSchema = Joi.object({
   sidebar_color: Joi.string().trim().max(50).optional(),
   accent_color: Joi.string().trim().max(50).optional(),
   font_size: Joi.string().trim().valid('small', 'medium', 'large').optional(),
-  storage_plan: Joi.string().trim().valid('free', 'pro').optional()
+  storage_plan: Joi.string().trim().valid('free', 'pro').optional(),
+  university: Joi.string().trim().allow(null, '').optional(),
+  organization: Joi.string().trim().allow(null, '').optional()
 }).min(1); // Require at least one field to be updated
 
 const changePasswordSchema = Joi.object({

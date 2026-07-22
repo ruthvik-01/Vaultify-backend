@@ -32,6 +32,8 @@ const serializeUser = (user) => ({
   sidebar_color: user.sidebar_color,
   accent_color: user.accent_color,
   font_size: user.font_size,
+  university: user.university || '',
+  organization: user.organization || '',
   created_at: user.created_at
 });
 
@@ -346,7 +348,8 @@ const updateProfile = async (req, res, next) => {
     const allowedFields = [
       'name', 'profile_image',
       'theme_color', 'dark_mode', 'sidebar_color',
-      'accent_color', 'font_size', 'storage_plan'
+      'accent_color', 'font_size', 'storage_plan',
+      'university', 'organization'
     ];
 
     const updateData = {};
