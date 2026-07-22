@@ -119,7 +119,7 @@ exports.adminLogin = async (req, res) => {
     Admin.updateOne(
       { _id: admin._id },
       { $set: { last_login: new Date(), last_activity: new Date(), session_timeout: 10080 } }
-    ).catch(() => {});
+    ).catch(() => { });
 
     const secret = process.env.JWT_SECRET || 'vaultify_jwt_secret_dev_key_2026';
     const token = jwt.sign(
@@ -181,7 +181,7 @@ exports.getDashboardStats = async (req, res) => {
       .lean();
 
     const emails = activeStudents.map(s => s.email.toLowerCase());
-    
+
     const monitoredUsers = emails.length > 0
       ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id email name').lean()
       : [];
@@ -960,19 +960,19 @@ exports.getTeamByName = async (req, res) => {
  */
 exports.getUploads = async (req, res) => {
   try {
-    const { 
-      search, 
-      team, 
+    const {
+      search,
+      team,
       student,
       folder,
-      fileType, 
-      dateRange, 
-      dateFrom, 
-      dateTo, 
-      sizeCategory, 
-      sortBy = 'newest', 
-      page = 1, 
-      limit = 10 
+      fileType,
+      dateRange,
+      dateFrom,
+      dateTo,
+      sizeCategory,
+      sortBy = 'newest',
+      page = 1,
+      limit = 10
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -1153,75 +1153,7 @@ exports.getUploads = async (req, res) => {
           team: { $ifNull: ['$studentInfo.team', 'General'] },
           size: '$file_size',
           uploadDate: '$created_at',
-          mimeType: '$file_type',
-          fileType: {
-            $switch: {
-              branches: [
-                {
-                  case: { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^image/', options: 'i' } },
-                  then: 'Image'
-                },
-                {
-                  case: { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^video/', options: 'i' } },
-                  then: 'Video'
-                },
-                {
-                  case: { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^audio/', options: 'i' } },
-                  then: 'Audio'
-                },
-                {
-                  case: { $eq: [{ $ifNull: ['$file_type', ''] }, 'application/pdf'] },
-                  then: 'PDF'
-                },
-                {
-                  case: {
-                    $or: [
-                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'word|officedocument.wordprocessingml', options: 'i' } },
-                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(doc|docx)$', options: 'i' } }
-                    ]
-                  },
-                  then: 'Word'
-                },
-                {
-                  case: {
-                    $or: [
-                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'excel|spreadsheet|csv', options: 'i' } },
-                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(xls|xlsx)$', options: 'i' } }
-                    ]
-                  },
-                  then: 'Excel'
-                },
-                {
-                  case: {
-                    $or: [
-                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'presentation|powerpoint', options: 'i' } },
-                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(ppt|pptx)$', options: 'i' } }
-                    ]
-                  },
-                  then: 'PowerPoint'
-                },
-                {
-                  case: {
-                    $or: [
-                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: 'zip|x-rar|x-7z|archive|compressed', options: 'i' } },
-                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(zip|rar|7z)$', options: 'i' } }
-                    ]
-                  },
-                  then: 'ZIP'
-                },
-                {
-                  case: {
-                    $or: [
-                      { $regexMatch: { input: { $ifNull: ['$file_type', ''] }, regex: '^text/', options: 'i' } },
-                      { $regexMatch: { input: { $ifNull: ['$file_name', ''] }, regex: '\\.(txt|log|json|js|html|css)$', options: 'i' } }
-                    ]
-                  },
-                  then: 'Text'
-                }
-              ],
-              default: 'Other'
-            }
-          }
+          fileType: '$file_type'
         }
       },
       {
@@ -1285,78 +1217,87 @@ exports.getUploads = async (req, res) => {
                 team: { $ifNull: ['$studentInfo.team', 'General'] },
                 size: '$size',
                 uploadDate: '$createdAt',
-                mimeType: '$mimeType',
-                fileType: {
-                  $switch: {
-                    branches: [
-                      {
-                        case: { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^image/', options: 'i' } },
-                        then: 'Image'
-                      },
-                      {
-                        case: { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^video/', options: 'i' } },
-                        then: 'Video'
-                      },
-                      {
-                        case: { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^audio/', options: 'i' } },
-                        then: 'Audio'
-                      },
-                      {
-                        case: { $eq: [{ $ifNull: ['$mimeType', ''] }, 'application/pdf'] },
-                        then: 'PDF'
-                      },
-                      {
-                        case: {
-                          $or: [
-                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'word|officedocument.wordprocessingml', options: 'i' } },
-                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(doc|docx)$', options: 'i' } }
-                          ]
-                        },
-                        then: 'Word'
-                      },
-                      {
-                        case: {
-                          $or: [
-                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'excel|spreadsheet|csv', options: 'i' } },
-                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(xls|xlsx)$', options: 'i' } }
-                          ]
-                        },
-                        then: 'Excel'
-                      },
-                      {
-                        case: {
-                          $or: [
-                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'presentation|powerpoint', options: 'i' } },
-                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(ppt|pptx)$', options: 'i' } }
-                          ]
-                        },
-                        then: 'PowerPoint'
-                      },
-                      {
-                        case: {
-                          $or: [
-                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: 'zip|x-rar|x-7z|archive|compressed', options: 'i' } },
-                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(zip|rar|7z)$', options: 'i' } }
-                          ]
-                        },
-                        then: 'ZIP'
-                      },
-                      {
-                        case: {
-                          $or: [
-                            { $regexMatch: { input: { $ifNull: ['$mimeType', ''] }, regex: '^text/', options: 'i' } },
-                            { $regexMatch: { input: { $ifNull: ['$originalName', ''] }, regex: '\\.(txt|log|json|js|html|css)$', options: 'i' } }
-                          ]
-                        },
-                        then: 'Text'
-                      }
-                    ],
-                    default: 'Other'
-                  }
-                }
+                fileType: { $literal: 'video' }
               }
             }
           ]
+        }
+      },
+      {
+        $lookup: {
+          from: 'uploadgroups',
+          localField: 'upload_group_id',
+          foreignField: '_id',
+          as: 'uploadGroup'
+        }
+      },
+      { $unwind: { path: '$uploadGroup', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: {
+            $cond: {
+              if: { $and: [{ $ne: ['$upload_group_id', null] }, { $ne: ['$upload_group_id', ''] }] },
+              then: '$upload_group_id',
+              else: { $toObjectId: '$id' }
+            }
+          },
+          isGroup: {
+            $first: {
+              $cond: {
+                if: { $and: [{ $ne: ['$upload_group_id', null] }, { $ne: ['$upload_group_id', ''] }] },
+                then: true,
+                else: false
+              }
+            }
+          },
+          groupTitle: { $first: '$uploadGroup.title' },
+          fileCount: { $sum: 1 },
+          size: { $sum: '$size' },
+          uploadDate: { $max: '$uploadDate' },
+          student: { $first: '$student' },
+          studentEmail: { $first: '$studentEmail' },
+          team: { $first: '$team' },
+          folder: { $first: '$folder' },
+          fileName: { $first: '$fileName' },
+          fileType: { $first: '$fileType' }
+        }
+      },
+      {
+        $project: {
+          id: { $toString: '$_id' },
+          student: 1,
+          studentEmail: 1,
+          team: 1,
+          folder: {
+            $cond: {
+              if: '$isGroup',
+              then: 'Upload Group',
+              else: '$folder'
+            }
+          },
+          fileName: {
+            $cond: {
+              if: '$isGroup',
+              then: {
+                $concat: [
+                  { $ifNull: ['$groupTitle', 'Unnamed Collection'] },
+                  ' (',
+                  { $toString: '$fileCount' },
+                  { $cond: { if: { $eq: ['$fileCount', 1] }, then: ' file)', else: ' files)' } }
+                ]
+              },
+              else: '$fileName'
+            }
+          },
+          fileType: {
+            $cond: {
+              if: '$isGroup',
+              then: 'group',
+              else: '$fileType'
+            }
+          },
+          size: 1,
+          uploadDate: 1
         }
       },
       { $match: matchStage },
@@ -1400,7 +1341,7 @@ exports.deleteUpload = async (req, res) => {
     let deleted = false;
     let fileName = '';
 
-    if ((type || '').toLowerCase() === 'video') {
+    if (type === 'video') {
       const video = await Video.findById(id).select('title filename originalName s3Key').lean();
       if (video) {
         fileName = video.title || video.filename || video.originalName;
@@ -1590,7 +1531,7 @@ exports.getActivityFeed = async (req, res) => {
 
     const rawStudents = await AdminStudent.find({ active: true }).select('email studentName team').lean();
     const emails = rawStudents.map(s => s.email.toLowerCase());
-    
+
     const monitoredUsers = emails.length > 0
       ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id email name').lean()
       : [];
@@ -1619,7 +1560,7 @@ exports.getActivityFeed = async (req, res) => {
         try {
           const parsed = JSON.parse(l.details);
           filename = parsed.fileName || parsed.filename || parsed.newName || parsed.targetName || '-';
-        } catch (e) {}
+        } catch (e) { }
       }
       return {
         id: l._id.toString(),
@@ -1780,7 +1721,7 @@ exports.getAnalytics = async (req, res) => {
             as: 'user'
           }
         },
-        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },        {
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } }, {
           $lookup: {
             from: 'files',
             let: { userId: '$user._id' },
@@ -2162,8 +2103,8 @@ exports.exportData = async (req, res) => {
   try {
     const students = await AdminStudent.find().select('studentName email team active createdAt').lean();
     const emails = students.map(s => s.email.toLowerCase());
-    
-    const users = emails.length > 0 
+
+    const users = emails.length > 0
       ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id').lean()
       : [];
     const userIds = users.map(u => u._id);
