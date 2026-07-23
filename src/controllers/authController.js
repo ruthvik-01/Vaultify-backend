@@ -445,23 +445,29 @@ const getUserActivities = async (req, res, next) => {
       let details = {};
       try {
         if (act.details) {
-          details = JSON.parse(act.details);
+          details = typeof act.details === 'string' ? JSON.parse(act.details) : act.details;
         }
       } catch (e) {
         details = { raw: act.details };
       }
-      const resourceName = act.resourceName || details.resourceName || details.fileName || details.folderName || details.title || details.newName || details.name || '';
-      const resourceType = act.resourceType || details.resourceType || (act.action.includes('FOLDER') ? 'Folder' : 'File');
+      const resourceName = act.itemName || act.resourceName || details.resourceName || details.fileName || details.folderName || details.title || details.newName || details.name || '';
+      const resourceType = act.itemType || act.resourceType || details.resourceType || (act.action.includes('FOLDER') ? 'Folder' : 'File');
       const folderName = act.folderName || details.folderName || '';
 
       return {
         id: act._id.toString(),
+        userId: act.user_id ? act.user_id.toString() : userId,
         action: act.action,
+        category: act.category || details.category || 'General',
+        itemName: resourceName || 'Item',
+        itemType: resourceType || 'File',
         resourceName,
         resourceType,
         folderName,
         fileName: resourceName,
-        timestamp: act.created_at
+        description: act.description || details.description || `${act.action} ${resourceName}`.trim(),
+        timestamp: act.created_at || act.timestamp || new Date(),
+        metadata: act.metadata || details
       };
     });
 
