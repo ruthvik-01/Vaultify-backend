@@ -42,11 +42,14 @@ const serializeUser = (user) => ({
  */
 const getProfile = async (req, res, next) => {
   try {
-    // User object already retrieved in protect middleware
+    const userDoc = await User.findById(req.user.id);
+    const serialized = serializeUser(userDoc || req.user);
     res.status(200).json({
+      success: true,
       status: 'success',
+      user: serialized,
       data: {
-        user: serializeUser(req.user)
+        user: serialized
       }
     });
   } catch (error) {
@@ -85,12 +88,15 @@ const updateProfile = async (req, res, next) => {
     }
 
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
+    const serialized = serializeUser(updatedUser);
 
     res.status(200).json({
+      success: true,
       status: 'success',
       message: 'Organization updated successfully.',
+      user: serialized,
       data: {
-        user: serializeUser(updatedUser)
+        user: serialized
       }
     });
   } catch (error) {
