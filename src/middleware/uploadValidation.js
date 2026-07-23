@@ -13,7 +13,8 @@ const initiateUploadSchema = Joi.object({
   }),
   folderId: Joi.string().trim().allow(null, '').optional(),
   uploadBatchId: Joi.string().trim().allow(null, '').optional(),
-  relative_path: Joi.string().trim().allow(null, '').optional()
+  relative_path: Joi.string().trim().allow(null, '').optional(),
+  upload_group_id: Joi.string().trim().allow(null, '').optional()
 });
 
 const completeUploadSchema = Joi.object({
@@ -36,7 +37,10 @@ const completeUploadSchema = Joi.object({
   s3Key: Joi.string().trim().optional(),
   filename: Joi.string().trim().optional(),
   mimeType: Joi.string().trim().optional(),
-  size: Joi.number().optional()
+  size: Joi.number().optional(),
+  uploadBatchId: Joi.string().trim().allow(null, '').optional(),
+  relative_path: Joi.string().trim().allow(null, '').optional(),
+  upload_group_id: Joi.string().trim().allow(null, '').optional()
 });
 
 const abortUploadSchema = Joi.object({

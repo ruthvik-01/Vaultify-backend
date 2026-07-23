@@ -32,10 +32,11 @@ module.exports = async function requireAdminAuth(req, res, next) {
       });
     }
 
-    // Check inactivity session timeout
-    if (adminUser.session_timeout && adminUser.last_activity) {
+    // Check inactivity session timeout (enforcing a minimum threshold of 7 days / 10080 minutes)
+    const timeoutMinutes = Math.max(adminUser.session_timeout || 10080, 10080);
+    if (adminUser.last_activity) {
       const elapsedMinutes = (Date.now() - new Date(adminUser.last_activity).getTime()) / (60 * 1000);
-      if (elapsedMinutes > adminUser.session_timeout) {
+      if (elapsedMinutes > timeoutMinutes) {
         return res.status(401).json({
           success: false,
           message: 'Unauthorized: Session expired due to inactivity. Please log in again.'

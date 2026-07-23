@@ -18,6 +18,7 @@ const VideoShare = require('./models/VideoShare');
 
 const adminRoutes = require('./routes/adminRoutes');
 const uploadGroupRoutes = require('./routes/uploadGroupRoutes');
+const storageRoutes = require('./routes/storageRoutes');
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use('/api/files', fileRoutes);
 app.use('/api/videos', videoRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload-groups', uploadGroupRoutes);
+app.use('/api/storage', storageRoutes);
 
 // Fallback logic for /api/share/:token to support standard documents and videos transparently
 const Video = require('./models/Video');
