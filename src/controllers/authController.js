@@ -437,8 +437,20 @@ const getUserActivities = async (req, res, next) => {
   try {
     const ActivityLog = require('../models/ActivityLog');
     const userId = req.user.id;
-    const logs = await ActivityLog.find({ user_id: userId })
-      .sort({ created_at: -1 })
+    const userIdStr = userId.toString();
+    let userObjId = null;
+    try {
+      userObjId = new mongoose.Types.ObjectId(userIdStr);
+    } catch (_) {}
+
+    const logs = await ActivityLog.find({
+      $or: [
+        { user_id: userObjId || userId },
+        { userId: userIdStr },
+        { user_id: userIdStr }
+      ]
+    })
+      .sort({ created_at: -1, timestamp: -1 })
       .limit(50);
 
     const formattedLogs = logs.map(act => {
