@@ -41,7 +41,10 @@ function detectFileType(mimeType, fileName) {
   if (safeMime.includes('zip') || safeMime.includes('x-rar') || safeMime.includes('x-7z') || safeMime.includes('archive') || safeMime.includes('compressed') || ['zip', 'rar', '7z'].includes(ext)) {
     return 'ZIP';
   }
-  if (safeMime.startsWith('text/') || ['txt', 'log', 'json', 'js', 'html', 'css'].includes(ext)) {
+  if (['js', 'jsx', 'ts', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'go', 'rb', 'php', 'html', 'css', 'sh', 'bat', 'yaml', 'yml'].includes(ext)) {
+    return 'Code';
+  }
+  if (safeMime.startsWith('text/') || ['txt', 'log', 'json'].includes(ext)) {
     return 'Text';
   }
   return 'Other';
@@ -192,29 +195,51 @@ exports.getDashboardStats = async (req, res) => {
     const studentMap = {};
     activeStudents.forEach(s => { studentMap[s.email.toLowerCase()] = s; });
 
-    const totalRegisteredUsers = await User.countDocuments();
-    const totalMonitoredStudents = activeStudents.length > 0 ? activeStudents.length : totalRegisteredUsers;
+    // Count actual registered students. Exclude admins, deleted, and disabled
+    const totalMonitoredStudents = await User.countDocuments({
+      email: { $not: /admin/i },
+      role: { $nin: ['admin', 'superadmin'] },
+      is_deleted: { $ne: true },
+      deleted: { $ne: true },
+      disabled: { $ne: true },
+      status: { $ne: 'disabled' },
+      active: { $ne: false }
+    });
 
-    // Calculate distinct teams from AdminStudent roster and User organization/university fields
+    // Calculate distinct teams strictly from AdminStudent roster
     const adminTeams = await AdminStudent.distinct('team', { active: true });
-    const userOrgs = await User.distinct('organization');
-    const userUnis = await User.distinct('university');
     const validTeams = new Set(
-      [...adminTeams, ...userOrgs, ...userUnis]
-        .filter(t => t && typeof t === 'string' && t.trim() !== '' && t.toLowerCase() !== 'general')
+      adminTeams.filter(t => t && typeof t === 'string' && t.trim() !== '' && t.toLowerCase() !== 'general')
     );
-    const totalTeams = validTeams.size > 0 ? validTeams.size : 1;
+    const totalTeams = validTeams.size;
 
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const totalFilesCount = await File.countDocuments();
-    const totalVideosCount = await Video.countDocuments();
+    // Count actual active uploaded files & videos (excluding deleted/trashed/failed)
+    const totalFilesCount = await File.countDocuments({ is_deleted: { $ne: true }, inTrash: { $ne: true } });
+    const totalVideosCount = await Video.countDocuments({ status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } });
     const totalUploads = totalFilesCount + totalVideosCount;
 
-    const platformFileStorage = await File.aggregate([{ $group: { _id: null, totalSize: { $sum: '$file_size' } } }]);
-    const platformVideoStorage = await Video.aggregate([{ $group: { _id: null, totalSize: { $sum: '$size' } } }]);
+    // Calculate dynamic storage used (excluding deleted/trashed)
+    const platformFileStorage = await File.aggregate([
+      { $match: { is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+      { $group: { _id: null, totalSize: { $sum: '$file_size' } } }
+    ]);
+    const platformVideoStorage = await Video.aggregate([
+      { $match: { status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+      { $group: { _id: null, totalSize: { $sum: '$size' } } }
+    ]);
     const totalStorageUsed = (platformFileStorage[0]?.totalSize || 0) + (platformVideoStorage[0]?.totalSize || 0);
+
+    const monitoredUserIds = monitoredUsers.map(u => u._id);
+
+    const fileQuery = { is_deleted: { $ne: true }, inTrash: { $ne: true } };
+    const videoQuery = { status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } };
+    if (monitoredUserIds.length > 0) {
+      fileQuery.user_id = { $in: monitoredUserIds };
+      videoQuery.ownerId = { $in: monitoredUserIds };
+    }
 
     const [
       recentFiles,
@@ -223,23 +248,20 @@ exports.getDashboardStats = async (req, res) => {
       videoTodayCount,
       loginLogsToday
     ] = await Promise.all([
-      File.find({ is_deleted: { $ne: true } })
+      File.find(fileQuery)
         .select('user_id file_name original_name file_size created_at file_type s3_key folder_id')
         .sort({ created_at: -1 })
         .limit(10)
         .lean(),
-      Video.find({ status: { $ne: 'Failed' } })
+      Video.find(videoQuery)
         .select('ownerId title filename originalName size createdAt s3Key folderId mimeType')
         .sort({ createdAt: -1 })
         .limit(10)
         .lean(),
-      File.countDocuments({ created_at: { $gte: startOfToday } }),
-      Video.countDocuments({ createdAt: { $gte: startOfToday } }),
+      File.countDocuments({ ...fileQuery, created_at: { $gte: startOfToday } }),
+      Video.countDocuments({ ...videoQuery, createdAt: { $gte: startOfToday } }),
       ActivityLog.find({
-        $or: [
-          { action: { $regex: /login/i } },
-          { category: { $regex: /auth/i } }
-        ],
+        action: { $regex: /^login$/i },
         $or: [
           { created_at: { $gte: startOfToday } },
           { timestamp: { $gte: startOfToday } }
@@ -252,7 +274,7 @@ exports.getDashboardStats = async (req, res) => {
       const idStr = l.user_id ? l.user_id.toString() : (l.userId ? l.userId.toString() : null);
       if (idStr) uniqueUserSet.add(idStr);
     });
-    const todayUniqueLogins = uniqueUserSet.size > 0 ? uniqueUserSet.size : (loginLogsToday || []).length;
+    const todayUniqueLogins = uniqueUserSet.size;
 
     // Resolve folder names for recent uploads
     const fileFolderIds = recentFiles.map(f => f.folder_id).filter(Boolean);
