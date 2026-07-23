@@ -182,9 +182,12 @@ exports.getDashboardStats = async (req, res) => {
 
     const emails = activeStudents.map(s => s.email.toLowerCase());
 
-    const monitoredUsers = emails.length > 0
-      ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id email name').lean()
-      : [];
+    let monitoredUsers = [];
+    if (emails.length > 0) {
+      monitoredUsers = await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).select('_id email name').lean();
+    } else {
+      monitoredUsers = await User.find().select('_id email name').lean();
+    }
 
     const userIds = monitoredUsers.map(u => u._id);
 
@@ -193,12 +196,16 @@ exports.getDashboardStats = async (req, res) => {
     const studentMap = {};
     activeStudents.forEach(s => { studentMap[s.email.toLowerCase()] = s; });
 
-    const totalMonitoredStudents = activeStudents.length;
+    const totalRegisteredUsers = await User.countDocuments();
+    const totalMonitoredStudents = activeStudents.length > 0 ? activeStudents.length : totalRegisteredUsers;
     const teamsSet = new Set(activeStudents.map(s => s.team));
-    const totalTeams = teamsSet.size;
+    const totalTeams = teamsSet.size > 0 ? teamsSet.size : 1;
 
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const fileMatch = userIds.length > 0 ? { user_id: { $in: userIds } } : {};
+    const videoMatch = userIds.length > 0 ? { ownerId: { $in: userIds } } : {};
 
     const [
       fileStorageResult,
@@ -206,44 +213,42 @@ exports.getDashboardStats = async (req, res) => {
       recentFiles,
       recentVideos,
       fileTodayCount,
-      videoTodayCount
+      videoTodayCount,
+      uniqueLoginsTodayList
     ] = await Promise.all([
       File.aggregate([
-        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
+        { $match: fileMatch },
         { $group: { _id: null, totalSize: { $sum: '$file_size' }, count: { $sum: 1 } } }
       ]),
       Video.aggregate([
-        { $match: { ownerId: { $in: userIds }, is_work_submission: true } },
+        { $match: videoMatch },
         { $group: { _id: null, totalSize: { $sum: '$size' }, count: { $sum: 1 } } }
       ]),
-      File.find({ user_id: { $in: userIds }, is_work_submission: true })
+      File.find(fileMatch)
         .select('user_id file_name original_name file_size created_at file_type s3_key folder_id')
         .sort({ created_at: -1 })
         .limit(10)
         .lean(),
-      Video.find({ ownerId: { $in: userIds }, is_work_submission: true })
+      Video.find(videoMatch)
         .select('ownerId title filename originalName size createdAt s3Key folderId mimeType')
         .sort({ createdAt: -1 })
         .limit(10)
         .lean(),
-      File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfToday } }),
-      Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfToday } })
+      File.countDocuments({ ...fileMatch, created_at: { $gte: startOfToday } }),
+      Video.countDocuments({ ...videoMatch, created_at: { $gte: startOfToday } }),
+      ActivityLog.distinct('user_id', {
+        action: { $in: ['LOGIN', 'GOOGLE_LOGIN'] },
+        created_at: { $gte: startOfToday }
+      })
     ]);
 
     const totalFiles = fileStorageResult[0]?.count || 0;
     const totalVideos = videoStorageResult[0]?.count || 0;
-
-    // Count upload groups instead of individual files
-    const totalUploadGroups = await UploadGroup.countDocuments({ user_id: { $in: userIds } });
-
-    // Also count legacy files/videos that have no upload_group_id (backward compat)
-    const [legacyFileCount, legacyVideoCount] = await Promise.all([
-      File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, upload_group_id: null }),
-      Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true, upload_group_id: null })
-    ]);
-
-    const totalUploads = totalUploadGroups + legacyFileCount + legacyVideoCount;
+    const totalUploads = totalFiles + totalVideos;
     const totalStorageUsed = (fileStorageResult[0]?.totalSize || 0) + (videoStorageResult[0]?.totalSize || 0);
+
+    // Count unique daily user logins today (counted once per user per calendar day)
+    const todayUniqueLogins = (uniqueLoginsTodayList || []).length;
 
     // Resolve folder names for recent uploads
     const fileFolderIds = recentFiles.map(f => f.folder_id).filter(Boolean);
@@ -316,6 +321,8 @@ exports.getDashboardStats = async (req, res) => {
         totalUploads,
         totalStorageUsed,
         todayUploads,
+        todayUniqueLogins,
+        todayLogins: todayUniqueLogins,
         recentUploads
       }
     });
