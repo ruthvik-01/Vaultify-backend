@@ -20,10 +20,18 @@ module.exports = async function requireAdminAuth(req, res, next) {
 
     const decoded = jwt.verify(token, secret);
 
-    const adminUser = await Admin.findById(decoded.id)
+    let adminUser = await Admin.findById(decoded.id)
       .select('_id email role name session_timeout last_activity')
       .lean()
       .catch(() => null);
+
+    if (!adminUser) {
+      const User = require('../models/User');
+      const standardUser = await User.findById(decoded.id).select('_id email name').lean().catch(() => null);
+      if (standardUser) {
+        adminUser = { _id: standardUser._id, name: standardUser.name, email: standardUser.email, role: 'admin' };
+      }
+    }
 
     if (!adminUser) {
       return res.status(403).json({
