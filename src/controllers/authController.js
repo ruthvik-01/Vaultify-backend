@@ -32,10 +32,71 @@ const serializeUser = (user) => ({
   sidebar_color: user.sidebar_color,
   accent_color: user.accent_color,
   font_size: user.font_size,
-  university: user.university || '',
-  organization: user.organization || '',
+  university: user.organization || user.university || '',
+  organization: user.organization || user.university || '',
   created_at: user.created_at
 });
+
+/**
+ * Get current authenticated user profile
+ */
+const getProfile = async (req, res, next) => {
+  try {
+    // User object already retrieved in protect middleware
+    res.status(200).json({
+      status: 'success',
+      data: {
+        user: serializeUser(req.user)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update authenticated user profile (including settings)
+ */
+const updateProfile = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const allowedFields = [
+      'name', 'profile_image',
+      'theme_color', 'dark_mode', 'sidebar_color',
+      'accent_color', 'font_size', 'storage_plan',
+      'university', 'organization'
+    ];
+
+    const updateData = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    }
+
+    if (updateData.organization !== undefined && updateData.university === undefined) {
+      updateData.university = updateData.organization;
+    } else if (updateData.university !== undefined && updateData.organization === undefined) {
+      updateData.organization = updateData.university;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return next(new BadRequestError('No profile properties provided for modification.'));
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Organization updated successfully.',
+      data: {
+        user: serializeUser(updatedUser)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * Register a new user
@@ -316,60 +377,6 @@ const logout = async (req, res, next) => {
     res.status(200).json({
       status: 'success',
       message: 'Successfully logged out on server side.'
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Get current authenticated user profile
- */
-const getProfile = async (req, res, next) => {
-  try {
-    // User object already retrieved in protect middleware
-    res.status(200).json({
-      status: 'success',
-      data: {
-        user: req.user
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Update authenticated user profile (including settings)
- */
-const updateProfile = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const allowedFields = [
-      'name', 'profile_image',
-      'theme_color', 'dark_mode', 'sidebar_color',
-      'accent_color', 'font_size', 'storage_plan',
-      'university', 'organization'
-    ];
-
-    const updateData = {};
-    for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
-      }
-    }
-
-    if (Object.keys(updateData).length === 0) {
-      return next(new BadRequestError('No profile properties provided for modification.'));
-    }
-
-    const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        user: serializeUser(updatedUser)
-      }
     });
   } catch (error) {
     next(error);
