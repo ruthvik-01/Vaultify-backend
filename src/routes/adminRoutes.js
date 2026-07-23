@@ -60,4 +60,7 @@ router.get('/activity', adminController.getActivityFeed);
 // 7. Analytics Data
 router.get('/analytics', adminController.getAnalytics);
 
+// 8. Student Monitoring
+router.get('/monitoring', adminController.getStudentMonitoring);
+
 module.exports = router;

@@ -2354,3 +2354,365 @@ exports.exportData = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * 16. Real-Time Student Monitoring - GET /admin/monitoring
+ */
+exports.getStudentMonitoring = async (req, res) => {
+  try {
+    const activeStudents = await AdminStudent.find({ active: true }).lean();
+    const emails = activeStudents.map(s => s.email.toLowerCase());
+
+    const registeredUsers = emails.length > 0
+      ? await User.find({ email: { $in: emails.map(e => new RegExp(`^${e}$`, 'i')) } }).lean()
+      : [];
+
+    const userByEmail = {};
+    registeredUsers.forEach(u => {
+      userByEmail[u.email.toLowerCase()] = u;
+    });
+
+    const userIds = registeredUsers.map(u => u._id);
+    const userMap = {};
+    registeredUsers.forEach(u => {
+      userMap[u._id.toString()] = u;
+    });
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(now.getTime() - 7 * 86400000);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Get all uploads today
+    const [filesToday, videosToday] = await Promise.all([
+      File.find({ created_at: { $gte: startOfToday }, is_deleted: { $ne: true }, inTrash: { $ne: true } }).lean(),
+      Video.find({ createdAt: { $gte: startOfToday }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } }).lean()
+    ]);
+
+    const uploadsToday = [
+      ...filesToday.map(f => ({ id: f._id.toString(), type: 'file', size: f.file_size, date: f.created_at, userId: f.user_id ? f.user_id.toString() : '' })),
+      ...videosToday.map(v => ({ id: v._id.toString(), type: 'video', size: v.size, date: v.createdAt, userId: v.ownerId ? v.ownerId.toString() : '' }))
+    ];
+
+    const monitoredUserIdsSet = new Set(userIds.map(id => id.toString()));
+    const monitoredUploadsToday = uploadsToday.filter(u => u.userId && monitoredUserIdsSet.has(u.userId));
+
+    // KPI Cards calculation
+    const uniqueStudentsTodaySet = new Set(monitoredUploadsToday.map(u => u.userId));
+    const studentsUploadedToday = uniqueStudentsTodaySet.size;
+    const pendingStudentsToday = Math.max(0, activeStudents.length - studentsUploadedToday);
+    const todayTotalUploads = monitoredUploadsToday.length;
+    const totalStorageUploadedToday = monitoredUploadsToday.reduce((sum, u) => sum + (u.size || 0), 0);
+
+    // Get all-time counts & last upload dates for monitored students
+    const [fileStats, videoStats, fileLastUploads, videoLastUploads] = await Promise.all([
+      File.aggregate([
+        { $match: { user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+        { $group: { _id: '$user_id', totalCount: { $sum: 1 }, totalSize: { $sum: '$file_size' } } }
+      ]),
+      Video.aggregate([
+        { $match: { ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+        { $group: { _id: '$ownerId', totalCount: { $sum: 1 }, totalSize: { $sum: '$size' } } }
+      ]),
+      File.aggregate([
+        { $match: { user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+        { $group: { _id: '$user_id', lastDate: { $max: '$created_at' } } }
+      ]),
+      Video.aggregate([
+        { $match: { ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+        { $group: { _id: '$ownerId', lastDate: { $max: '$createdAt' } } }
+      ])
+    ]);
+
+    const studentTotalCountMap = {};
+    const studentTotalSizeMap = {};
+    const lastUploadMap = {};
+
+    fileStats.forEach(item => {
+      const uidStr = item._id.toString();
+      studentTotalCountMap[uidStr] = (studentTotalCountMap[uidStr] || 0) + item.totalCount;
+      studentTotalSizeMap[uidStr] = (studentTotalSizeMap[uidStr] || 0) + item.totalSize;
+    });
+    videoStats.forEach(item => {
+      const uidStr = item._id.toString();
+      studentTotalCountMap[uidStr] = (studentTotalCountMap[uidStr] || 0) + item.totalCount;
+      studentTotalSizeMap[uidStr] = (studentTotalSizeMap[uidStr] || 0) + item.totalSize;
+    });
+
+    fileLastUploads.forEach(item => {
+      lastUploadMap[item._id.toString()] = item.lastDate;
+    });
+    videoLastUploads.forEach(item => {
+      const uidStr = item._id.toString();
+      const current = lastUploadMap[uidStr];
+      if (!current || item.lastDate > current) {
+        lastUploadMap[uidStr] = item.lastDate;
+      }
+    });
+
+    // Process team progress
+    const teamsMap = {};
+    activeStudents.forEach(s => {
+      const teamName = s.team || 'General';
+      if (!teamsMap[teamName]) {
+        teamsMap[teamName] = {
+          teamName,
+          totalMembers: 0,
+          membersUploadedToday: new Set(),
+          pendingMembers: 0
+        };
+      }
+      teamsMap[teamName].totalMembers += 1;
+      const u = userByEmail[s.email.toLowerCase()];
+      if (u && uniqueStudentsTodaySet.has(u._id.toString())) {
+        teamsMap[teamName].membersUploadedToday.add(u._id.toString());
+      }
+    });
+
+    let teamsCompletedToday = 0;
+    const teamsProgress = Object.values(teamsMap).map(t => {
+      const uploadedTodayCount = t.membersUploadedToday.size;
+      const pendingCount = Math.max(0, t.totalMembers - uploadedTodayCount);
+      const completion = t.totalMembers > 0 ? Math.round((uploadedTodayCount / t.totalMembers) * 100) : 0;
+      if (completion === 100 && t.totalMembers > 0) {
+        teamsCompletedToday += 1;
+      }
+      return {
+        teamName: t.teamName,
+        totalMembers: t.totalMembers,
+        membersUploadedToday: uploadedTodayCount,
+        pendingMembers: pendingCount,
+        completion
+      };
+    });
+
+    // Process students list (Performance & Pending)
+    const studentPerformance = [];
+    const pendingStudentsList = [];
+
+    activeStudents.forEach(s => {
+      const u = userByEmail[s.email.toLowerCase()];
+      const uidStr = u ? u._id.toString() : '';
+      
+      const todayCount = u ? monitoredUploadsToday.filter(up => up.userId === uidStr).length : 0;
+      const totalCount = uidStr ? (studentTotalCountMap[uidStr] || 0) : 0;
+      const storageUsed = uidStr ? (studentTotalSizeMap[uidStr] || 0) : 0;
+      const lastUpload = uidStr ? lastUploadMap[uidStr] : null;
+
+      const hasUploadedToday = todayCount > 0;
+      let status = 'Pending';
+      if (hasUploadedToday) {
+        status = 'Active';
+      } else if (lastUpload) {
+        const diffDays = Math.ceil((now - new Date(lastUpload)) / (1000 * 60 * 60 * 24));
+        if (diffDays >= 7) {
+          status = 'Inactive';
+        }
+      } else {
+        status = 'Inactive';
+      }
+
+      const studData = {
+        name: s.studentName,
+        email: s.email,
+        team: s.team || 'General',
+        todayCount,
+        totalCount,
+        storageUsed,
+        lastUploadDate: lastUpload,
+        status
+      };
+
+      studentPerformance.push(studData);
+
+      if (!hasUploadedToday) {
+        let pendingStatus = 'Pending Today';
+        if (!lastUpload) {
+          pendingStatus = 'Never Uploaded';
+        } else {
+          const diffDays = Math.ceil((now - new Date(lastUpload)) / (1000 * 60 * 60 * 24));
+          if (diffDays >= 7) pendingStatus = 'Inactive';
+        }
+
+        pendingStudentsList.push({
+          name: s.studentName,
+          email: s.email,
+          team: s.team || 'General',
+          lastUploadDate: lastUpload,
+          status: pendingStatus
+        });
+      }
+    });
+
+    // Sort pending students: 1. Never Uploaded, 2. Oldest Upload Date, 3. Pending Today
+    pendingStudentsList.sort((a, b) => {
+      if (a.status === 'Never Uploaded' && b.status !== 'Never Uploaded') return -1;
+      if (a.status !== 'Never Uploaded' && b.status === 'Never Uploaded') return 1;
+      if (a.lastUploadDate && b.lastUploadDate) {
+        return new Date(a.lastUploadDate) - new Date(b.lastUploadDate); // Oldest first
+      }
+      return 0;
+    });
+
+    // Live Activity Feed - latest 15 logs
+    const recentLogs = await ActivityLog.find({
+      $or: [
+        { user_id: { $in: userIds } },
+        { userId: { $in: userIds.map(id => id.toString()) } }
+      ]
+    })
+      .sort({ created_at: -1, timestamp: -1 })
+      .limit(15)
+      .lean();
+
+    const activityFeed = recentLogs.map(l => {
+      const logUserId = l.user_id ? l.user_id.toString() : (l.userId ? l.userId.toString() : '');
+      const user = userMap[logUserId];
+      const studentName = user ? user.name : 'Unknown Student';
+      
+      let description = l.details || l.action;
+      let icon = 'info';
+
+      const actionLower = (l.action || '').toLowerCase();
+      if (actionLower.includes('login')) {
+        description = 'Logged In';
+        icon = 'login';
+      } else if (actionLower.includes('logout')) {
+        description = 'Logged Out';
+        icon = 'logout';
+      } else if (actionLower.includes('upload') || actionLower.includes('create_file') || actionLower.includes('create_video')) {
+        description = `Uploaded ${l.details || 'a file'}`;
+        icon = 'upload';
+      } else if (actionLower.includes('delete')) {
+        description = `Deleted ${l.details || 'a file'}`;
+        icon = 'delete';
+      } else if (actionLower.includes('download')) {
+        description = `Downloaded ${l.details || 'a file'}`;
+        icon = 'download';
+      } else if (actionLower.includes('profile')) {
+        description = 'Profile Updated';
+        icon = 'profile';
+      } else if (actionLower.includes('organization')) {
+        description = 'Organization Updated';
+        icon = 'org';
+      }
+
+      return {
+        id: l._id.toString(),
+        description,
+        studentName,
+        timestamp: l.created_at || l.timestamp || new Date(),
+        icon
+      };
+    });
+
+    // Alerts Panel
+    const alerts = [];
+    // 1. Team pending alerts
+    teamsProgress.forEach(tp => {
+      if (tp.pendingMembers > 0) {
+        alerts.push({
+          type: 'warning',
+          message: `${tp.teamName} Team has ${tp.pendingMembers} pending upload(s)`
+        });
+      } else if (tp.totalMembers > 0) {
+        alerts.push({
+          type: 'success',
+          message: `${tp.teamName} Team completed today's submissions`
+        });
+      }
+    });
+
+    // 2. Student inactivity alert (> 5 days)
+    activeStudents.forEach(s => {
+      const u = userByEmail[s.email.toLowerCase()];
+      if (u) {
+        const lastUpload = lastUploadMap[u._id.toString()];
+        if (lastUpload) {
+          const diffDays = Math.floor((now - new Date(lastUpload)) / (1000 * 60 * 60 * 24));
+          if (diffDays >= 5) {
+            alerts.push({
+              type: 'danger',
+              message: `${s.studentName} has not uploaded for ${diffDays} days`
+            });
+          }
+        } else {
+          alerts.push({
+            type: 'danger',
+            message: `${s.studentName} has never uploaded any file`
+          });
+        }
+      }
+    });
+
+    // 3. Storage quota alert (simulated limit of 10GB for this project)
+    const [fileGlobalStorage, videoGlobalStorage] = await Promise.all([
+      File.aggregate([
+        { $match: { is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+        { $group: { _id: null, totalSize: { $sum: '$file_size' } } }
+      ]),
+      Video.aggregate([
+        { $match: { status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
+        { $group: { _id: null, totalSize: { $sum: '$size' } } }
+      ])
+    ]);
+    const totalStorageAllTime = (fileGlobalStorage[0]?.totalSize || 0) + (videoGlobalStorage[0]?.totalSize || 0);
+    const capacityLimit = 10 * 1024 * 1024 * 1024; // 10 GB
+    const storageUsagePercent = Math.round((totalStorageAllTime / capacityLimit) * 100);
+    if (storageUsagePercent >= 80) {
+      alerts.push({
+        type: 'danger',
+        message: `Storage quota nearing limit (${storageUsagePercent}% used)`
+      });
+    }
+
+    // Analytics Sub-section
+    const [
+      fileWeekCount,
+      videoWeekCount,
+      fileMonthCount,
+      videoMonthCount,
+      fileAllTimeCount,
+      videoAllTimeCount
+    ] = await Promise.all([
+      File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true }, created_at: { $gte: startOfWeek } }),
+      Video.countDocuments({ ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true }, createdAt: { $gte: startOfWeek } }),
+      File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true }, created_at: { $gte: startOfMonth } }),
+      Video.countDocuments({ ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true }, createdAt: { $gte: startOfMonth } }),
+      File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true } }),
+      Video.countDocuments({ ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } })
+    ]);
+
+    const totalAllTimeUploads = fileAllTimeCount + videoAllTimeCount;
+    const allTimeSizesSum = studentPerformance.reduce((sum, s) => sum + s.storageUsed, 0);
+    const averageUploadSize = totalAllTimeUploads > 0 ? Math.round(allTimeSizesSum / totalAllTimeUploads) : 0;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        kpi: {
+          studentsUploadedToday,
+          pendingStudentsToday,
+          todayTotalUploads,
+          teamsCompletedToday,
+          totalStorageUploadedToday
+        },
+        teamsProgress,
+        pendingStudents: pendingStudentsList,
+        studentPerformance,
+        activityFeed,
+        alerts: alerts.slice(0, 15), // limit alerts display
+        analytics: {
+          uploadsToday: todayTotalUploads,
+          uploadsThisWeek: fileWeekCount + videoWeekCount,
+          uploadsThisMonth: fileMonthCount + videoMonthCount,
+          totalUploads: totalAllTimeUploads,
+          averageUploadSize,
+          storageUploadedToday: totalStorageUploadedToday
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
