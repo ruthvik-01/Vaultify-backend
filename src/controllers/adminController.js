@@ -1153,7 +1153,8 @@ exports.getUploads = async (req, res) => {
           team: { $ifNull: ['$studentInfo.team', 'General'] },
           size: '$file_size',
           uploadDate: '$created_at',
-          fileType: '$file_type'
+          fileType: '$file_type',
+          mimeType: '$file_type'
         }
       },
       {
@@ -1194,6 +1195,15 @@ exports.getUploads = async (req, res) => {
             { $unwind: { path: '$studentInfo', preserveNullAndEmptyArrays: true } },
             {
               $lookup: {
+                from: 'folders',
+                localField: 'folderId',
+                foreignField: '_id',
+                as: 'regularFolderInfo'
+              }
+            },
+            { $unwind: { path: '$regularFolderInfo', preserveNullAndEmptyArrays: true } },
+            {
+              $lookup: {
                 from: 'videofolders',
                 localField: 'folderId',
                 foreignField: '_id',
@@ -1209,7 +1219,13 @@ exports.getUploads = async (req, res) => {
                   $cond: {
                     if: { $eq: [{ $ifNull: ['$folderId', null] }, null] },
                     then: 'General',
-                    else: { $ifNull: ['$videoFolderInfo.name', 'Unknown Folder'] }
+                    else: {
+                      $cond: {
+                        if: '$is_work_submission',
+                        then: { $ifNull: ['$regularFolderInfo.folder_name', 'Unknown Folder'] },
+                        else: { $ifNull: ['$videoFolderInfo.name', 'Unknown Folder'] }
+                      }
+                    }
                   }
                 },
                 student: { $ifNull: ['$studentInfo.studentName', { $ifNull: ['$user.name', 'Monitored Student'] }] },
@@ -1217,7 +1233,8 @@ exports.getUploads = async (req, res) => {
                 team: { $ifNull: ['$studentInfo.team', 'General'] },
                 size: '$size',
                 uploadDate: '$createdAt',
-                fileType: { $literal: 'video' }
+                fileType: { $literal: 'video' },
+                mimeType: { $ifNull: ['$mimeType', 'video/mp4'] }
               }
             }
           ]
@@ -1259,7 +1276,8 @@ exports.getUploads = async (req, res) => {
           team: { $first: '$team' },
           folder: { $first: '$folder' },
           fileName: { $first: '$fileName' },
-          fileType: { $first: '$fileType' }
+          fileType: { $first: '$fileType' },
+          mimeType: { $first: '$mimeType' }
         }
       },
       {
@@ -1296,6 +1314,7 @@ exports.getUploads = async (req, res) => {
               else: '$fileType'
             }
           },
+          mimeType: 1,
           size: 1,
           uploadDate: 1
         }
@@ -1312,8 +1331,16 @@ exports.getUploads = async (req, res) => {
 
     const result = await File.aggregate(aggregationPipeline);
     const total = result[0]?.metadata[0]?.total || 0;
-    const uploads = result[0]?.data || [];
+    const rawUploads = result[0]?.data || [];
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
+
+    const uploads = rawUploads.map((u) => {
+      const detected = u.fileType === 'group' ? 'group' : detectFileType(u.mimeType, u.fileName);
+      return {
+        ...u,
+        fileType: detected.toLowerCase()
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -1336,12 +1363,67 @@ exports.getUploads = async (req, res) => {
 exports.deleteUpload = async (req, res) => {
   try {
     const { id } = req.params;
-    const { type } = req.query; // 'video' or 'file'
+    const { type } = req.query; // 'video', 'file', or 'group'
 
     let deleted = false;
     let fileName = '';
 
-    if (type === 'video') {
+    if (type === 'group') {
+      const group = await UploadGroup.findById(id);
+      if (group) {
+        fileName = group.title;
+        // Find all files and videos in the group
+        const files = await File.find({ upload_group_id: id }).select('s3_key').lean();
+        const videos = await Video.find({ upload_group_id: id }).select('s3Key').lean();
+
+        // Delete all files and videos from S3 concurrently
+        const s3Promises = [
+          ...files.map(f => {
+            if (f.s3_key) return deleteFile(f.s3_key).catch(err => console.warn('S3 delete file error:', err.message));
+            return Promise.resolve();
+          }),
+          ...videos.map(v => {
+            if (v.s3Key) return deleteFile(v.s3Key).catch(err => console.warn('S3 delete video error:', err.message));
+            return Promise.resolve();
+          })
+        ];
+        await Promise.all(s3Promises);
+
+        // Delete shared links for files/videos in this group or the group itself
+        const SharedLink = require('../models/SharedLink');
+        const fileIds = files.map(f => f._id);
+        await SharedLink.deleteMany({
+          $or: [
+            { file_id: { $in: fileIds } },
+            { upload_group_id: group._id }
+          ]
+        });
+
+        // Delete files and videos in the group from DB
+        await File.deleteMany({ upload_group_id: id });
+        await Video.deleteMany({ upload_group_id: id });
+
+        // Delete folders in the group from DB
+        const groupFolders = await Folder.find({ upload_group_id: id }).select('_id').lean();
+        if (groupFolders.length > 0) {
+          const folderIds = groupFolders.map(f => f._id);
+          // Delete files inside folder from S3
+          const folderFiles = await File.find({ folder_id: { $in: folderIds } }).select('s3_key').lean();
+          const folderS3Promises = folderFiles.map(f => {
+            if (f.s3_key) return deleteFile(f.s3_key).catch(err => console.warn('S3 delete folder file error:', err.message));
+            return Promise.resolve();
+          });
+          await Promise.all(folderS3Promises);
+          
+          await File.deleteMany({ folder_id: { $in: folderIds } });
+          await Folder.deleteMany({ _id: { $in: folderIds } });
+        }
+
+        // Delete the group itself
+        await UploadGroup.findByIdAndDelete(id);
+        deleted = true;
+      }
+    } else if (type === 'video') {
       const video = await Video.findById(id).select('title filename originalName s3Key').lean();
       if (video) {
         fileName = video.title || video.filename || video.originalName;
@@ -1353,7 +1435,7 @@ exports.deleteUpload = async (req, res) => {
       }
     }
 
-    if (!deleted) {
+    if (!deleted && type !== 'group') {
       const file = await File.findById(id).select('file_name original_name s3_key').lean();
       if (file) {
         fileName = file.file_name || file.original_name;
@@ -1384,16 +1466,30 @@ exports.deleteUpload = async (req, res) => {
 exports.getUploadPreviewUrl = async (req, res) => {
   try {
     const { id } = req.params;
-    const { type, disposition } = req.query; // 'video' or 'file'
+    const { type, disposition } = req.query; // 'video', 'file', or 'group'
 
     let s3Key = '';
     let fileName = '';
 
-    if ((type || '').toLowerCase() === 'video') {
+    const normalizedType = (type || '').toLowerCase();
+
+    if (normalizedType === 'video') {
       const video = await Video.findById(id).select('s3Key title filename originalName').lean();
       if (video) {
         s3Key = video.s3Key;
         fileName = video.title || video.filename || video.originalName;
+      }
+    } else if (normalizedType === 'group') {
+      const file = await File.findOne({ upload_group_id: id }).select('s3_key file_name original_name').lean();
+      if (file) {
+        s3Key = file.s3_key;
+        fileName = file.file_name || file.original_name;
+      } else {
+        const video = await Video.findOne({ upload_group_id: id }).select('s3Key title filename originalName').lean();
+        if (video) {
+          s3Key = video.s3Key;
+          fileName = video.title || video.filename || video.originalName;
+        }
       }
     } else {
       const file = await File.findById(id).select('s3_key file_name original_name').lean();
@@ -1426,7 +1522,7 @@ exports.getUploadPreviewUrl = async (req, res) => {
 exports.createUploadShare = async (req, res) => {
   try {
     const { id } = req.params;
-    const { type } = req.query; // 'video' or 'file'
+    const { type } = req.query; // 'video', 'file', or 'group'
     const normalizedType = (type || '').toLowerCase();
 
     const crypto = require('crypto');
@@ -1443,6 +1539,23 @@ exports.createUploadShare = async (req, res) => {
         await video.save();
       }
       shareToken = video.shareToken;
+    } else if (normalizedType === 'group') {
+      const SharedLink = require('../models/SharedLink');
+      const group = await UploadGroup.findById(id);
+      if (!group) {
+        return res.status(404).json({ success: false, message: 'Upload group record not found.' });
+      }
+      let sharedLink = await SharedLink.findOne({ upload_group_id: id });
+      if (!sharedLink) {
+        const token = crypto.randomBytes(32).toString('hex');
+        sharedLink = await SharedLink.create({
+          upload_group_id: id,
+          token,
+          permission: 'read',
+          expiry_date: null
+        });
+      }
+      shareToken = sharedLink.token;
     } else {
       const SharedLink = require('../models/SharedLink');
       const file = await File.findById(id);
@@ -1958,7 +2071,7 @@ exports.getSettings = async (req, res) => {
       settings: {
         name: admin.name,
         email: admin.email,
-        sessionTimeout: admin.session_timeout || 30,
+        sessionTimeout: admin.session_timeout || 10080,
         emailAlerts: admin.email_alerts !== false,
         dailyDigest: admin.daily_digest !== false,
         auditRetention: admin.audit_retention || 90,

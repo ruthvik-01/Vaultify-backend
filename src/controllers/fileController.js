@@ -36,21 +36,55 @@ const ALLOWED_MIME_TYPES = [
   'video/x-msvideo'
 ];
 
-const serializeFile = (file) => ({
-  id: file.id,
-  user_id: file.user_id?.toString?.() || file.user_id,
-  folder_id: file.folder_id ? file.folder_id.toString() : null,
-  file_name: file.file_name,
-  original_name: file.original_name,
-  file_type: file.file_type,
-  file_size: file.file_size,
-  s3_key: file.s3_key,
-  is_favorite: file.is_favorite,
-  is_work_submission: file.is_work_submission || false,
-  upload_group_id: file.upload_group_id ? file.upload_group_id.toString() : null,
-  created_at: file.created_at,
-  updated_at: file.updated_at
-});
+const getAutoCategory = (fileName, folderName) => {
+  const lowerFolderName = (folderName || '').toLowerCase();
+  const lowerName = (fileName || '').toLowerCase();
+  
+  // Certificates
+  if (lowerFolderName === 'certificates' || 
+      lowerName.includes('certificate') || 
+      lowerName.includes('completion') || 
+      lowerName.includes('achievement')) {
+    return 'Certificates';
+  }
+  
+  // Projects
+  if (['projects', 'assignments', 'modules', 'labs', 'code', 'git'].includes(lowerFolderName)) {
+    return 'Projects';
+  }
+  
+  // Media
+  const ext = lowerName.split('.').pop();
+  if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'aac'].includes(ext)) {
+    return 'Media';
+  }
+  
+  // Default to Documents
+  return 'Documents';
+};
+
+const serializeFile = (file, folderName = '') => {
+  const folderObj = file.folder_id;
+  const fName = folderName || (folderObj && typeof folderObj === 'object' ? folderObj.folder_name : '');
+  const folderId = folderObj ? (folderObj._id ? folderObj._id.toString() : folderObj.toString()) : null;
+
+  return {
+    id: file.id,
+    user_id: file.user_id?.toString?.() || file.user_id,
+    folder_id: folderId,
+    file_name: file.file_name,
+    original_name: file.original_name,
+    file_type: file.file_type,
+    file_size: file.file_size,
+    s3_key: file.s3_key,
+    is_favorite: file.is_favorite,
+    is_work_submission: file.is_work_submission || false,
+    upload_group_id: file.upload_group_id ? file.upload_group_id.toString() : null,
+    category: getAutoCategory(file.file_name, fName),
+    created_at: file.created_at,
+    updated_at: file.updated_at
+  };
+};
 
 const getS3Category = (mimetype) => {
   if (mimetype === 'application/pdf') return 'documents';
@@ -111,7 +145,7 @@ const isWorkFolder = async (folderId) => {
 };
 
 const findOwnedFile = async (fileId, userId) => {
-  const file = await File.findById(fileId);
+  const file = await File.findById(fileId).populate('folder_id', 'folder_name');
   if (!file) {
     throw new NotFoundError('File not found.');
   }
@@ -170,7 +204,7 @@ const uploadFileController = async (req, res, next) => {
     res.status(201).json({
       status: 'success',
       data: {
-        file: serializeFile(createdFile)
+        file: serializeFile(createdFile, folder ? folder.folder_name : '')
       }
     });
   } catch (error) {
@@ -192,13 +226,13 @@ const getFiles = async (req, res, next) => {
       query.is_favorite = is_favorite === 'true';
     }
 
-    const files = await File.find(query).sort({ created_at: -1 });
+    const files = await File.find(query).populate('folder_id', 'folder_name').sort({ created_at: -1 });
 
     res.status(200).json({
       status: 'success',
       results: files.length,
       data: {
-        files: files.map(serializeFile)
+        files: files.map(f => serializeFile(f))
       }
     });
   } catch (error) {

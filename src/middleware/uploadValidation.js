@@ -39,6 +39,7 @@ const completeUploadSchema = Joi.object({
   mimeType: Joi.string().trim().optional(),
   size: Joi.number().optional(),
   uploadBatchId: Joi.string().trim().allow(null, '').optional(),
+  relative_path: Joi.string().trim().allow(null, '').optional(),
   upload_group_id: Joi.string().trim().length(24).hex().allow(null, '').optional()
 });
 
