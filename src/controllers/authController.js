@@ -444,10 +444,17 @@ const getUserActivities = async (req, res, next) => {
       } catch (e) {
         details = { raw: act.details };
       }
+      const resourceName = act.resourceName || details.resourceName || details.fileName || details.folderName || details.title || details.newName || details.name || '';
+      const resourceType = act.resourceType || details.resourceType || (act.action.includes('FOLDER') ? 'Folder' : 'File');
+      const folderName = act.folderName || details.folderName || '';
+
       return {
         id: act._id.toString(),
         action: act.action,
-        fileName: details.fileName || details.folderName || details.title || details.newName || '',
+        resourceName,
+        resourceType,
+        folderName,
+        fileName: resourceName,
         timestamp: act.created_at
       };
     });
