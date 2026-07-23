@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const { logActivity } = require('../services/activityService');
 const { BadRequestError, UnauthorizedError, ConflictError, NotFoundError } = require('../utils/errors');
@@ -90,10 +91,20 @@ const updateProfile = async (req, res, next) => {
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
     const serialized = serializeUser(updatedUser);
 
+    if (updateData.organization !== undefined || updateData.university !== undefined) {
+      await logActivity(userId, 'Organization Updated', 'Profile', `Updated organization to "${updateData.organization || updateData.university}"`, { organization: updateData.organization || updateData.university }, req.ip);
+    }
+    if (updateData.theme_color !== undefined || updateData.dark_mode !== undefined || updateData.sidebar_color !== undefined || updateData.accent_color !== undefined || updateData.font_size !== undefined) {
+      await logActivity(userId, 'Settings Updated', 'Settings', 'Updated application settings', { settings: updateData }, req.ip);
+    }
+    if (updateData.name !== undefined || updateData.profile_image !== undefined || updateData.bio !== undefined || updateData.phone !== undefined || updateData.major !== undefined) {
+      await logActivity(userId, 'Profile Updated', 'Profile', 'Updated profile information', { profile: updateData }, req.ip);
+    }
+
     res.status(200).json({
       success: true,
       status: 'success',
-      message: 'Organization updated successfully.',
+      message: 'Profile updated successfully.',
       user: serialized,
       data: {
         user: serialized
@@ -159,12 +170,14 @@ const login = async (req, res, next) => {
     // Fetch user details
     const user = await User.findOne({ email });
     if (!user) {
+      await logActivity(null, 'Failed Login', 'Auth', `Failed login attempt for email ${email} (User not found)`, { email, reason: 'User not found' }, req.ip);
       return next(new UnauthorizedError('Invalid email or password.'));
     }
 
     // Compare passwords
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
+      await logActivity(user.id, 'Failed Login', 'Auth', `Failed login attempt for ${email} (Incorrect password)`, { email, reason: 'Incorrect password' }, req.ip);
       return next(new UnauthorizedError('Invalid email or password.'));
     }
 

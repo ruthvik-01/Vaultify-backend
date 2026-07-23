@@ -202,8 +202,8 @@ const deleteFolder = async (req, res, next) => {
     // Delete parent folder and its subfolders from DB
     await Folder.deleteMany({ _id: { $in: folderIds } });
 
-    // Log rename/deletion audit logs
-    await logActivity(userId, 'Delete', { folderId: id, folderName: folder.folder_name }, req.ip);
+    // Log folder deletion audit log
+    await logActivity(userId, 'DELETE_FOLDER', 'Folder', `Deleted folder "${folder.folder_name}"`, { folderId: id, folderName: folder.folder_name, itemType: 'Folder' }, req.ip);
 
     res.status(200).json({
       status: 'success',
