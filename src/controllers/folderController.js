@@ -38,6 +38,8 @@ const createFolder = async (req, res, next) => {
       await UploadGroup.findByIdAndUpdate(upload_group_id, { has_folders: true });
     }
 
+    await logActivity(userId, 'CREATE_FOLDER', 'Folder', `Created folder "${folder_name}"`, { folderId: folder.id, folderName: folder_name }, req.ip);
+
     res.status(201).json({
       status: 'success',
       data: {
@@ -114,8 +116,11 @@ const updateFolder = async (req, res, next) => {
       return next(new ForbiddenError('Access Denied: You do not own this folder.'));
     }
 
+    const oldName = folder.folder_name;
     folder.folder_name = folder_name;
     await folder.save();
+
+    await logActivity(userId, 'RENAME_FOLDER', 'Folder', `Renamed folder to "${folder_name}"`, { folderId: folder.id, oldName, folderName: folder_name }, req.ip);
 
     res.status(200).json({
       status: 'success',

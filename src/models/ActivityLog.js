@@ -5,6 +5,7 @@ const activityLogSchema = new mongoose.Schema({
   userId: { type: String, default: null },
   action: { type: String, required: true },
   category: { type: String, default: 'General' },
+  title: { type: String, default: '' },
   itemName: { type: String, default: '' },
   itemType: { type: String, default: 'Item' },
   resourceName: { type: String, default: '' },

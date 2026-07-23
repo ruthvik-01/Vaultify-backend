@@ -7,34 +7,59 @@ const logger = require('../config/logger');
  * - logActivity(userId, action, category, description, metadata)
  * - logActivity(userId, action, detailsObj, ipAddress)
  */
-const logActivity = async (userId, action, categoryOrDetails = 'General', description = '', metadata = {}, ipAddress = null) => {
+const logActivity = async (userIdOrObj, actionParam, categoryOrDetails = 'General', descriptionParam = '', metadataParam = {}, ipAddressParam = null) => {
   try {
+    let userId = null;
+    let action = 'ACTION';
     let category = 'General';
-    let desc = '';
-    let meta = {};
+    let title = '';
+    let description = '';
     let itemName = '';
     let itemType = 'File';
     let folderName = '';
+    let metadata = {};
+    let ipAddress = null;
 
-    if (typeof categoryOrDetails === 'object' && categoryOrDetails !== null) {
-      meta = categoryOrDetails;
-      category = meta.category || (action.includes('FOLDER') ? 'Folder' : action.includes('UPLOAD') ? 'Upload' : action.includes('DELETE') ? 'Delete' : action.includes('LOGIN') ? 'Login' : 'General');
-      desc = meta.description || meta.details || meta.text || '';
-      itemName = meta.itemName || meta.resourceName || meta.fileName || meta.folderName || meta.title || meta.name || meta.newName || '';
-      itemType = meta.itemType || meta.resourceType || (action.includes('FOLDER') || meta.folderName ? 'Folder' : 'File');
-      folderName = meta.folderName || '';
-      ipAddress = description || null;
+    if (typeof userIdOrObj === 'object' && userIdOrObj !== null && !userIdOrObj._bsontype && !userIdOrObj.toHexString) {
+      const obj = userIdOrObj;
+      userId = obj.userId || obj.user_id || null;
+      action = obj.action || 'ACTION';
+      category = obj.category || 'General';
+      title = obj.title || '';
+      description = obj.description || obj.details || '';
+      itemName = obj.itemName || obj.resourceName || obj.fileName || obj.folderName || obj.title || obj.name || '';
+      itemType = obj.itemType || obj.resourceType || (action.includes('FOLDER') ? 'Folder' : 'File');
+      folderName = obj.folderName || '';
+      metadata = obj.metadata || obj;
+      ipAddress = obj.ipAddress || obj.ip_address || null;
     } else {
-      category = categoryOrDetails || 'General';
-      desc = description || '';
-      meta = typeof metadata === 'object' && metadata !== null ? metadata : { raw: metadata };
-      itemName = meta.itemName || meta.resourceName || meta.fileName || meta.folderName || meta.title || meta.name || meta.newName || '';
-      itemType = meta.itemType || meta.resourceType || (action.includes('FOLDER') || meta.folderName ? 'Folder' : 'File');
-      folderName = meta.folderName || '';
+      userId = userIdOrObj;
+      action = actionParam || 'ACTION';
+
+      if (typeof categoryOrDetails === 'object' && categoryOrDetails !== null) {
+        metadata = categoryOrDetails;
+        category = metadata.category || 'General';
+        title = metadata.title || '';
+        description = metadata.description || metadata.details || '';
+        itemName = metadata.itemName || metadata.resourceName || metadata.fileName || metadata.folderName || metadata.title || metadata.name || '';
+        itemType = metadata.itemType || metadata.resourceType || (action.includes('FOLDER') ? 'Folder' : 'File');
+        folderName = metadata.folderName || '';
+        ipAddress = descriptionParam || null;
+      } else {
+        category = categoryOrDetails || 'General';
+        description = descriptionParam || '';
+        metadata = typeof metadataParam === 'object' && metadataParam !== null ? metadataParam : { raw: metadataParam };
+        title = metadata.title || '';
+        itemName = metadata.itemName || metadata.resourceName || metadata.fileName || metadata.folderName || metadata.title || metadata.name || '';
+        itemType = metadata.itemType || metadata.resourceType || (action.includes('FOLDER') ? 'Folder' : 'File');
+        folderName = metadata.folderName || '';
+        ipAddress = ipAddressParam || null;
+      }
     }
 
-    if (!itemName && meta.name) itemName = meta.name;
-    if (!desc && itemName) desc = `${action} "${itemName}"`;
+    if (!itemName && title) itemName = title;
+    if (!title && itemName) title = itemName;
+    if (!description && itemName) description = `${action} "${itemName}"`;
 
     const now = new Date();
     await ActivityLog.create({
@@ -42,21 +67,22 @@ const logActivity = async (userId, action, categoryOrDetails = 'General', descri
       userId: userId ? userId.toString() : null,
       action: action || 'action',
       category: category || 'General',
-      itemName: itemName || desc || 'Item',
+      title: title || itemName || action,
+      itemName: itemName || title || 'Item',
       itemType: itemType || 'File',
-      resourceName: itemName || 'Item',
+      resourceName: itemName || title || 'Item',
       resourceType: itemType || 'File',
       folderName: folderName || '',
-      description: desc || `${action} action performed`,
-      details: JSON.stringify(meta),
-      metadata: meta,
+      description: description || `${action} action performed`,
+      details: JSON.stringify(metadata),
+      metadata: metadata,
       ip_address: ipAddress,
       created_at: now,
       timestamp: now
     });
     logger.info(`[Activity Log] User: ${userId || 'Anon'} | Action: ${action} | Category: ${category}`);
   } catch (error) {
-    logger.error(`Database logging failure for action ${action}: ${error.message}`);
+    logger.error(`Database logging failure for action ${actionParam}: ${error.message}`);
   }
 };
 

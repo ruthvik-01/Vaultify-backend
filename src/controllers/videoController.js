@@ -6,6 +6,7 @@ const videoService = require('../services/videoService');
 const videoUploadService = require('../services/videoUploadService');
 const shareService = require('../services/shareService');
 const s3Service = require('../services/s3Service');
+const { logActivity } = require('../services/activityService');
 const { BadRequestError, NotFoundError, ForbiddenError } = require('../utils/errors');
 const logger = require('../config/logger');
 const fs = require('fs');
@@ -83,6 +84,9 @@ const completeUpload = async (req, res, next) => {
       uploadId,
       parts
     );
+
+    const fileName = video.filename || video.originalName || 'Video File';
+    await logActivity(ownerId, 'UPLOAD_FILE', 'Media', `Uploaded media file "${fileName}"`, { videoId: video._id, fileName }, req.ip);
 
     res.status(200).json({
       status: 'success',
@@ -362,6 +366,8 @@ const renameVideo = async (req, res, next) => {
     }
 
     const video = await videoService.renameVideo(ownerId, id, name);
+    await logActivity(ownerId, 'RENAME_FILE', 'Edit', `Renamed video to "${name}"`, { videoId: id, name }, req.ip);
+
     res.status(200).json({
       status: 'success',
       data: { video }
@@ -378,6 +384,8 @@ const moveVideo = async (req, res, next) => {
     const ownerId = req.user.id;
 
     const video = await videoService.moveVideo(ownerId, id, folderId);
+    await logActivity(ownerId, 'MOVE_FILE', 'Move', `Moved video`, { videoId: id, folderId }, req.ip);
+
     res.status(200).json({
       status: 'success',
       data: { video }
@@ -393,6 +401,7 @@ const deleteVideo = async (req, res, next) => {
     const ownerId = req.user.id;
 
     await videoService.deleteVideo(ownerId, id);
+    await logActivity(ownerId, 'DELETE_FILE', 'Delete', `Deleted video`, { videoId: id }, req.ip);
 
     res.status(200).json({
       status: 'success',
