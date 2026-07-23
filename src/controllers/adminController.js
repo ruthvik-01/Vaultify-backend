@@ -429,7 +429,8 @@ exports.getStudents = async (req, res) => {
                     { $eq: ['$user_id', '$$userId'] }
                   ]
                 },
-                is_work_submission: true
+                is_deleted: { $ne: true },
+                inTrash: { $ne: true }
               }
             },
             { $project: { file_size: 1, created_at: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
@@ -450,7 +451,9 @@ exports.getStudents = async (req, res) => {
                     { $eq: ['$ownerId', '$$userId'] }
                   ]
                 },
-                is_work_submission: true
+                status: { $ne: 'Failed' },
+                is_deleted: { $ne: true },
+                inTrash: { $ne: true }
               }
             },
             { $project: { size: 1, createdAt: 1, uploadBatchId: { $ifNull: ['$uploadBatchId', { $toString: '$_id' }] } } }
@@ -576,11 +579,11 @@ exports.getStudentById = async (req, res) => {
 
     if (user) {
       const [files, videos, folderCountRes] = await Promise.all([
-        File.find({ user_id: user._id, is_work_submission: true })
+        File.find({ user_id: user._id, is_deleted: { $ne: true }, inTrash: { $ne: true } })
           .select('_id file_name folder_name file_size created_at file_type')
           .sort({ created_at: -1 })
           .lean(),
-        Video.find({ ownerId: user._id, is_work_submission: true })
+        Video.find({ ownerId: user._id, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } })
           .select('_id originalName filename title size createdAt')
           .sort({ createdAt: -1 })
           .lean(),
@@ -628,14 +631,14 @@ exports.getStudentById = async (req, res) => {
     let studentTotalUploads = 0;
     if (user) {
       const [fileBatchIds, videoBatchIds, folderBatchIds] = await Promise.all([
-        File.distinct('uploadBatchId', { user_id: user._id, is_work_submission: true }),
-        Video.distinct('uploadBatchId', { ownerId: user._id, is_work_submission: true }),
+        File.distinct('uploadBatchId', { user_id: user._id, is_deleted: { $ne: true }, inTrash: { $ne: true } }),
+        Video.distinct('uploadBatchId', { ownerId: user._id, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } }),
         Folder.distinct('uploadBatchId', { user_id: user._id })
       ]);
 
       const [legacyFilesCount, legacyVideosCount, legacyFoldersCount] = await Promise.all([
-        File.countDocuments({ user_id: user._id, is_work_submission: true, uploadBatchId: null }),
-        Video.countDocuments({ ownerId: user._id, is_work_submission: true, uploadBatchId: null }),
+        File.countDocuments({ user_id: user._id, is_deleted: { $ne: true }, inTrash: { $ne: true }, uploadBatchId: null }),
+        Video.countDocuments({ ownerId: user._id, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true }, uploadBatchId: null }),
         Folder.countDocuments({ user_id: user._id, uploadBatchId: null })
       ]);
 
@@ -1044,16 +1047,28 @@ exports.getUploads = async (req, res) => {
 
     if (fileType && fileType !== 'All') {
       const lowerType = fileType.toLowerCase();
-      if (lowerType === 'video') {
-        matchStage.fileType = 'Video';
-      } else if (lowerType === 'image') {
-        matchStage.fileType = 'Image';
+      if (lowerType === 'image') {
+        matchStage.$or = [
+          { mimeType: { $regex: /^image\//i } },
+          { fileName: { $regex: /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i } }
+        ];
+      } else if (lowerType === 'video') {
+        matchStage.$or = [
+          { mimeType: { $regex: /^video\//i } },
+          { fileName: { $regex: /\.(mp4|mov|avi|mkv|webm|wmv|flv)$/i } }
+        ];
       } else if (lowerType === 'document') {
-        matchStage.fileType = { $in: ['PDF', 'Word', 'Excel', 'PowerPoint', 'Text'] };
+        matchStage.$or = [
+          { mimeType: { $regex: /(pdf|word|excel|spreadsheet|csv|presentation|powerpoint|text|plain)/i } },
+          { fileName: { $regex: /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|log|json)$/i } }
+        ];
       } else if (lowerType === 'archive') {
-        matchStage.fileType = 'ZIP';
-      } else {
-        matchStage.fileType = fileType.charAt(0).toUpperCase() + fileType.slice(1);
+        matchStage.$or = [
+          { mimeType: { $regex: /(zip|x-rar|x-7z|archive|compressed)/i } },
+          { fileName: { $regex: /\.(zip|rar|7z)$/i } }
+        ];
+      } else if (lowerType === 'code') {
+        matchStage.fileName = { $regex: /\.(js|jsx|ts|tsx|py|java|cpp|c|cs|go|rb|php|html|css|sh|bat|yaml|yml)$/i };
       }
     }
 
@@ -1129,7 +1144,7 @@ exports.getUploads = async (req, res) => {
     }
 
     const aggregationPipeline = [
-      { $match: { is_work_submission: true, user_id: { $in: monitoredUserIds } } },
+      { $match: { is_deleted: { $ne: true }, inTrash: { $ne: true } } },
       {
         $lookup: {
           from: 'users',
@@ -1194,7 +1209,7 @@ exports.getUploads = async (req, res) => {
         $unionWith: {
           coll: 'videos',
           pipeline: [
-            { $match: { is_work_submission: true, ownerId: { $in: monitoredUserIds } } },
+            { $match: { status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
             {
               $lookup: {
                 from: 'users',
@@ -1456,19 +1471,7 @@ exports.deleteUpload = async (req, res) => {
         await UploadGroup.findByIdAndDelete(id);
         deleted = true;
       }
-    } else if (type === 'video') {
-      const video = await Video.findById(id).select('title filename originalName s3Key').lean();
-      if (video) {
-        fileName = video.title || video.filename || video.originalName;
-        if (video.s3Key) {
-          deleteFile(video.s3Key).catch(err => console.warn('S3 video delete error:', err.message));
-        }
-        await Video.deleteOne({ _id: id });
-        deleted = true;
-      }
-    }
-
-    if (!deleted && type !== 'group') {
+    } else if (type !== 'group') {
       const file = await File.findById(id).select('file_name original_name s3_key').lean();
       if (file) {
         fileName = file.file_name || file.original_name;
@@ -1477,6 +1480,16 @@ exports.deleteUpload = async (req, res) => {
         }
         await File.deleteOne({ _id: id });
         deleted = true;
+      } else {
+        const video = await Video.findById(id).select('title filename originalName s3Key').lean();
+        if (video) {
+          fileName = video.title || video.filename || video.originalName;
+          if (video.s3Key) {
+            deleteFile(video.s3Key).catch(err => console.warn('S3 video delete error:', err.message));
+          }
+          await Video.deleteOne({ _id: id });
+          deleted = true;
+        }
       }
     }
 
@@ -1511,6 +1524,12 @@ exports.getUploadPreviewUrl = async (req, res) => {
       if (video) {
         s3Key = video.s3Key;
         fileName = video.title || video.filename || video.originalName;
+      } else {
+        const file = await File.findById(id).select('s3_key file_name original_name').lean();
+        if (file) {
+          s3Key = file.s3_key;
+          fileName = file.file_name || file.original_name;
+        }
       }
     } else if (normalizedType === 'group') {
       const file = await File.findOne({ upload_group_id: id }).select('s3_key file_name original_name').lean();
@@ -1529,6 +1548,12 @@ exports.getUploadPreviewUrl = async (req, res) => {
       if (file) {
         s3Key = file.s3_key;
         fileName = file.file_name || file.original_name;
+      } else {
+        const video = await Video.findById(id).select('s3Key title filename originalName').lean();
+        if (video) {
+          s3Key = video.s3Key;
+          fileName = video.title || video.filename || video.originalName;
+        }
       }
     }
 
@@ -1562,16 +1587,33 @@ exports.createUploadShare = async (req, res) => {
     let shareToken = '';
 
     if (normalizedType === 'video') {
-      const video = await Video.findById(id);
-      if (!video) {
-        return res.status(404).json({ success: false, message: 'Video record not found.' });
+      let video = await Video.findById(id);
+      if (video) {
+        if (!video.shareToken) {
+          video.shareToken = crypto.randomBytes(16).toString('hex');
+          video.isShared = true;
+          await video.save();
+        }
+        shareToken = video.shareToken;
+      } else {
+        // Fallback to File
+        const file = await File.findById(id);
+        if (!file) {
+          return res.status(404).json({ success: false, message: 'Upload record not found.' });
+        }
+        const SharedLink = require('../models/SharedLink');
+        let sharedLink = await SharedLink.findOne({ file_id: id });
+        if (!sharedLink) {
+          const token = crypto.randomBytes(32).toString('hex');
+          sharedLink = await SharedLink.create({
+            file_id: id,
+            token,
+            permission: 'read',
+            expiry_date: null
+          });
+        }
+        shareToken = sharedLink.token;
       }
-      if (!video.shareToken) {
-        video.shareToken = crypto.randomBytes(16).toString('hex');
-        video.isShared = true;
-        await video.save();
-      }
-      shareToken = video.shareToken;
     } else if (normalizedType === 'group') {
       const SharedLink = require('../models/SharedLink');
       const group = await UploadGroup.findById(id);
@@ -1590,22 +1632,33 @@ exports.createUploadShare = async (req, res) => {
       }
       shareToken = sharedLink.token;
     } else {
-      const SharedLink = require('../models/SharedLink');
-      const file = await File.findById(id);
-      if (!file) {
-        return res.status(404).json({ success: false, message: 'File record not found.' });
+      let file = await File.findById(id);
+      if (file) {
+        const SharedLink = require('../models/SharedLink');
+        let sharedLink = await SharedLink.findOne({ file_id: id });
+        if (!sharedLink) {
+          const token = crypto.randomBytes(32).toString('hex');
+          sharedLink = await SharedLink.create({
+            file_id: id,
+            token,
+            permission: 'read',
+            expiry_date: null
+          });
+        }
+        shareToken = sharedLink.token;
+      } else {
+        // Fallback to Video
+        const video = await Video.findById(id);
+        if (!video) {
+          return res.status(404).json({ success: false, message: 'Upload record not found.' });
+        }
+        if (!video.shareToken) {
+          video.shareToken = crypto.randomBytes(16).toString('hex');
+          video.isShared = true;
+          await video.save();
+        }
+        shareToken = video.shareToken;
       }
-      let sharedLink = await SharedLink.findOne({ file_id: id });
-      if (!sharedLink) {
-        const token = crypto.randomBytes(32).toString('hex');
-        sharedLink = await SharedLink.create({
-          file_id: id,
-          token,
-          permission: 'read',
-          expiry_date: null
-        });
-      }
-      shareToken = sharedLink.token;
     }
 
     res.status(200).json({
@@ -1637,8 +1690,8 @@ exports.deleteTeamUploads = async (req, res) => {
     const userIds = users.map(u => u._id);
 
     const [files, videos] = await Promise.all([
-      File.find({ user_id: { $in: userIds }, is_work_submission: true }).select('s3_key').lean(),
-      Video.find({ ownerId: { $in: userIds }, is_work_submission: true }).select('s3Key').lean()
+      File.find({ user_id: { $in: userIds } }).select('s3_key').lean(),
+      Video.find({ ownerId: { $in: userIds } }).select('s3Key').lean()
     ]);
 
     // Delete S3 objects in parallel without blocking DB deletion
@@ -1650,8 +1703,8 @@ exports.deleteTeamUploads = async (req, res) => {
     });
 
     const [fileResult, videoResult] = await Promise.all([
-      File.deleteMany({ user_id: { $in: userIds }, is_work_submission: true }),
-      Video.deleteMany({ ownerId: { $in: userIds }, is_work_submission: true })
+      File.deleteMany({ user_id: { $in: userIds } }),
+      Video.deleteMany({ ownerId: { $in: userIds } })
     ]);
 
     const totalDeleted = (fileResult.deletedCount || 0) + (videoResult.deletedCount || 0);
@@ -1784,7 +1837,7 @@ exports.getAnalytics = async (req, res) => {
 
       dayPromises.push(
         Promise.all([
-          File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: dayStart, $lt: dayEnd } }),
+          File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true }, created_at: { $gte: dayStart, $lt: dayEnd } }),
           Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: dayStart, $lt: dayEnd } })
         ]).then(([fc, vc]) => ({ day: dayName, uploads: fc + vc }))
       );
@@ -1798,7 +1851,7 @@ exports.getAnalytics = async (req, res) => {
 
       weekPromises.push(
         Promise.all([
-          File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: start, $lt: end } }),
+          File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true }, created_at: { $gte: start, $lt: end } }),
           Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: start, $lt: end } })
         ]).then(([fc, vc]) => ({ week: weekLabel, uploads: fc + vc }))
       );
@@ -1815,7 +1868,7 @@ exports.getAnalytics = async (req, res) => {
 
       monthPromises.push(
         Promise.all([
-          File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfMonth, $lte: endOfMonth } }),
+          File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true }, created_at: { $gte: startOfMonth, $lte: endOfMonth } }),
           Video.countDocuments({ ownerId: { $in: userIds }, createdAt: { $gte: startOfMonth, $lte: endOfMonth } })
         ]).then(([fc, vc]) => ({ month: mName, uploads: fc + vc }))
       );
@@ -1880,7 +1933,8 @@ exports.getAnalytics = async (req, res) => {
                       { $eq: ['$user_id', '$$userId'] }
                     ]
                   },
-                  is_work_submission: true
+                  is_deleted: { $ne: true },
+                  inTrash: { $ne: true }
                 }
               },
               { $project: { file_size: 1 } }
@@ -1901,7 +1955,9 @@ exports.getAnalytics = async (req, res) => {
                       { $eq: ['$ownerId', '$$userId'] }
                     ]
                   },
-                  is_work_submission: true
+                  status: { $ne: 'Failed' },
+                  is_deleted: { $ne: true },
+                  inTrash: { $ne: true }
                 }
               },
               { $project: { size: 1 } }
@@ -1927,43 +1983,43 @@ exports.getAnalytics = async (req, res) => {
         }
       ]),
       File.aggregate([
-        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
+        { $match: { user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
         { $group: { _id: '$user_id', count: { $sum: 1 }, size: { $sum: '$file_size' } } }
       ]),
       Video.aggregate([
-        { $match: { ownerId: { $in: userIds }, is_work_submission: true } },
+        { $match: { ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
         { $group: { _id: '$ownerId', count: { $sum: 1 }, size: { $sum: '$size' } } }
       ]),
       File.aggregate([
-        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
+        { $match: { user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
         { $group: { _id: null, totalSize: { $sum: '$file_size' }, count: { $sum: 1 } } }
       ]),
       Video.aggregate([
-        { $match: { ownerId: { $in: userIds }, is_work_submission: true } },
+        { $match: { ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
         { $group: { _id: null, totalSize: { $sum: '$size' }, count: { $sum: 1 } } }
       ]),
-      File.find({ user_id: { $in: userIds }, is_work_submission: true })
+      File.find({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true } })
         .select('user_id file_name file_size created_at file_type')
         .sort({ file_size: -1 })
         .limit(10)
         .lean(),
-      Video.find({ ownerId: { $in: userIds }, is_work_submission: true })
+      Video.find({ ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } })
         .select('ownerId originalName filename size createdAt')
         .sort({ size: -1 })
         .limit(10)
         .lean(),
       File.aggregate([
-        { $match: { user_id: { $in: userIds }, is_work_submission: true } },
+        { $match: { user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true } } },
         { $group: { _id: '$file_type', count: { $sum: 1 } } }
       ]),
-      Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true }),
+      Video.countDocuments({ ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true } }),
       Promise.all([
-        File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfThisWeek } }),
-        Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true, createdAt: { $gte: startOfThisWeek } })
+        File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true }, created_at: { $gte: startOfThisWeek } }),
+        Video.countDocuments({ ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true }, createdAt: { $gte: startOfThisWeek } })
       ]),
       Promise.all([
-        File.countDocuments({ user_id: { $in: userIds }, is_work_submission: true, created_at: { $gte: startOfPriorWeek, $lt: startOfThisWeek } }),
-        Video.countDocuments({ ownerId: { $in: userIds }, is_work_submission: true, createdAt: { $gte: startOfPriorWeek, $lt: startOfThisWeek } })
+        File.countDocuments({ user_id: { $in: userIds }, is_deleted: { $ne: true }, inTrash: { $ne: true }, created_at: { $gte: startOfPriorWeek, $lt: startOfThisWeek } }),
+        Video.countDocuments({ ownerId: { $in: userIds }, status: { $ne: 'Failed' }, is_deleted: { $ne: true }, inTrash: { $ne: true }, createdAt: { $gte: startOfPriorWeek, $lt: startOfThisWeek } })
       ])
     ]);
 
