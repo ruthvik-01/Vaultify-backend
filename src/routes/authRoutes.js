@@ -11,7 +11,9 @@ const {
   logout,
   getProfile,
   updateProfile,
-  changePassword
+  changePassword,
+  getUserActivities,
+  logCustomActivity
 } = require('../controllers/authController');
 
 const { protect } = require('../middleware/authMiddleware');
@@ -37,5 +39,7 @@ router.post('/logout', protect, logout);
 router.get('/profile', protect, getProfile);
 router.put('/profile', protect, validate(updateProfileSchema), updateProfile);
 router.put('/change-password', protect, validate(changePasswordSchema), changePassword);
+router.get('/activities', protect, getUserActivities);
+router.post('/activities', protect, logCustomActivity);
 
 module.exports = router;

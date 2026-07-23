@@ -420,6 +420,55 @@ const changePassword = async (req, res, next) => {
   }
 };
 
+const getUserActivities = async (req, res, next) => {
+  try {
+    const ActivityLog = require('../models/ActivityLog');
+    const userId = req.user.id;
+    const logs = await ActivityLog.find({ user_id: userId })
+      .sort({ created_at: -1 })
+      .limit(50);
+
+    const formattedLogs = logs.map(act => {
+      let details = {};
+      try {
+        if (act.details) {
+          details = JSON.parse(act.details);
+        }
+      } catch (e) {
+        details = { raw: act.details };
+      }
+      return {
+        id: act._id.toString(),
+        action: act.action,
+        fileName: details.fileName || details.folderName || details.title || details.newName || '',
+        timestamp: act.created_at
+      };
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        activities: formattedLogs
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const logCustomActivity = async (req, res, next) => {
+  try {
+    const { action, fileName, details = {} } = req.body;
+    const userId = req.user.id;
+    await logActivity(userId, action, { fileName, ...details }, req.ip);
+    res.status(201).json({
+      status: 'success'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -430,5 +479,7 @@ module.exports = {
   logout,
   getProfile,
   updateProfile,
-  changePassword
+  changePassword,
+  getUserActivities,
+  logCustomActivity
 };

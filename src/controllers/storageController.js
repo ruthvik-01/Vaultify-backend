@@ -58,35 +58,22 @@ exports.getStorageSummary = async (req, res, next) => {
           category: {
             $cond: {
               if: {
-                $or: [
-                  { $eq: [{ $toLower: '$folderName' }, 'certificates'] },
-                  { $regexMatch: { input: '$name', regex: /certificate/i } },
-                  { $regexMatch: { input: '$name', regex: /completion/i } },
-                  { $regexMatch: { input: '$name', regex: /achievement/i } }
-                ]
+                $regexMatch: {
+                  input: '$name',
+                  regex: /\.(jpg|jpeg|png|gif|svg|bmp|webp)$/i
+                }
               },
-              then: 'Certificates',
+              then: 'Images',
               else: {
                 $cond: {
                   if: {
-                    $in: [
-                      { $toLower: '$folderName' },
-                      ['projects', 'assignments', 'modules', 'labs', 'code', 'git']
-                    ]
-                  },
-                  then: 'Projects',
-                  else: {
-                    $cond: {
-                      if: {
-                        $regexMatch: {
-                          input: '$name',
-                          regex: /\.(jpg|jpeg|png|gif|svg|mp4|mov|avi|mkv|webm|mp3|wav|aac)$/i
-                        }
-                      },
-                      then: 'Media',
-                      else: 'Documents'
+                    $regexMatch: {
+                      input: '$name',
+                      regex: /\.(mp4|mov|avi|mkv|webm|mp3|wav)$/i
                     }
-                  }
+                  },
+                  then: 'Media',
+                  else: 'Documents'
                 }
               }
             }
@@ -108,8 +95,7 @@ exports.getStorageSummary = async (req, res, next) => {
       remainingStorage: 500 * 1024 * 1024 * 1024,
       usagePercentage: 0,
       documents: { files: 0, size: 0 },
-      projects: { files: 0, size: 0 },
-      certificates: { files: 0, size: 0 },
+      images: { files: 0, size: 0 },
       media: { files: 0, size: 0 }
     };
 
@@ -119,10 +105,8 @@ exports.getStorageSummary = async (req, res, next) => {
       const key = r._id.toLowerCase();
       if (key === 'documents') {
         defaultStats.documents = { files: r.files, size: r.size };
-      } else if (key === 'projects') {
-        defaultStats.projects = { files: r.files, size: r.size };
-      } else if (key === 'certificates') {
-        defaultStats.certificates = { files: r.files, size: r.size };
+      } else if (key === 'images') {
+        defaultStats.images = { files: r.files, size: r.size };
       } else if (key === 'media') {
         defaultStats.media = { files: r.files, size: r.size };
       }
