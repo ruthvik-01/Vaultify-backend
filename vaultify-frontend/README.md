@@ -1,0 +1,158 @@
+# 💻 Vaultify Client Portal
+
+[![React Version](https://img.shields.io/badge/react-v19.2.6-blue.svg?style=flat-square&logo=react)](https://react.dev/)
+[![Build Tool](https://img.shields.io/badge/build_tool-Vite_8-yellow.svg?style=flat-square&logo=vite)](https://vitejs.dev/)
+[![Style Framework](https://img.shields.io/badge/css-Tailwind_v4-turquoise.svg?style=flat-square&logo=tailwindcss)](https://tailwindcss.com/)
+[![Animation](https://img.shields.io/badge/animation-Framer_Motion-purple.svg?style=flat-square&logo=framer)](https://www.framer.com/motion/)
+[![Router](https://img.shields.io/badge/routing-React_Router_7-red.svg?style=flat-square&logo=reactrouter)](https://reactrouter.com/)
+[![Auth Provider](https://img.shields.io/badge/auth-Firebase_Auth-orange.svg?style=flat-square&logo=firebase)](https://firebase.google.com/)
+[![Deployment](https://img.shields.io/badge/deploy-Vercel-black.svg?style=flat-square&logo=vercel)](https://vercel.com/)
+
+Welcome to the frontend user interface for **Vaultify**, an advanced, feature-rich cloud storage and video streaming platform. This client application is engineered for maximum speed, fluid visuals, and absolute responsiveness, utilizing **React 19, Vite, Tailwind CSS v4, Framer Motion**, and **Firebase Auth**.
+
+---
+
+## ✨ Primary Features
+
+*   **⚡ High-Speed SPA Core:** Structured on React 19 and Vite 8, yielding near-instantaneous load times and Hot Module Replacement (HMR).
+*   **📂 Multi-subsystem Explorer:**
+    *   **Document Vault:** Folder tree layout, multi-format upload widgets, grid-to-list layout switcher, document renaming, and drag-and-drop support.
+    *   **Dedicated Video Vault:** Specialized workspace with path breadcrumbs, folder trees, progress panels, customized grid controls, and a bespoke HTML5 Video Player.
+*   **🌟 Favourites & Trash Recycler:** Star essential documents for quick lookup, or throw folders into the Trash bin with restore capabilities.
+*   **🍿 Streamlined Video Player:** Pre-signed S3 stream engine rendering video playback (with support for seeking and volume configuration) without authentication hurdles.
+*   **🔐 Complete Authentication flow:** Dynamic login, account signup, Google OAuth popup logins, email verification walls, and password resets powered securely by Firebase Auth.
+*   **📈 UI Analytics & Storage Indicator:** Multi-colored radial dashboard widgets presenting storage usage limits and visual folder categories.
+*   **🎭 Motion Design & Glassmorphism:** Micro-animations, sliding cards, and smooth navigation state changes implemented using Framer Motion.
+
+---
+
+## 📂 Project Directory Structure
+
+```text
+Vaultify-frontend/
+├── public/                 # Static public assets (icons, logos, custom illustrations)
+├── src/
+│   ├── assets/             # Bundled local assets and styling assets
+│   ├── components/         # Reusable UI modules
+│   │   ├── video/          # Subsystem components (VideoCard, VideoPlayer, Breadcrumbs, etc.)
+│   │   ├── FileCard.jsx    # Card viewer for general files (grid & list context)
+│   │   ├── Navbar.jsx      # Top header navbar (containing breadcrumbs, search, and menus)
+│   │   ├── Sidebar.jsx     # Navigation menu (linking files, uploads, video vault, settings)
+│   │   └── StorageCard.jsx # Storage gauge tracker
+│   ├── context/            # React global context (FileContext handling state)
+│   ├── firebase/           # Configuration files and credential anchors
+│   ├── hooks/              # Custom reusable React hooks
+│   ├── layouts/            # Component page templates (AuthLayout, DashboardLayout)
+│   ├── pages/              # Routing page targets
+│   │   ├── Dashboard.jsx   # Core summary dashboard
+│   │   ├── Landing.jsx     # Public landing homepage
+│   │   ├── PublicShare.jsx # Standalone link-sharing browser page
+│   │   ├── Videos.jsx      # Specialized video vault controller
+│   │   └── Trash.jsx       # Recycle bin explorer
+│   ├── routes/             # Client-side router maps (index.jsx)
+│   ├── services/           # Api client service connectors
+│   ├── utils/              # Data parsing, size formatters, date utility helper scripts
+│   ├── App.css             # Main styling rules
+│   ├── index.css           # Tailwind entry point and root design tokens
+│   ├── App.jsx             # Top level provider wrapper
+│   └── main.jsx            # DOM entry anchor
+├── vercel.json             # Vercel configuration for client-side routing routing
+├── vite.config.js          # Vite building config
+└── package.json            # Script commands and dependency listings
+```
+
+---
+
+## ⚙️ Environment Configuration
+
+Create a `.env` file in the root directory:
+
+```env
+# Vaultify API URL Endpoint
+# Use local address or deploy to production URL
+VITE_API_URL=http://localhost:5000/api
+
+# Firebase Web Client Credentials
+VITE_FIREBASE_API_KEY=your-firebase-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+VITE_FIREBASE_APP_ID=your-app-id
+```
+
+---
+
+## 🛠️ Getting Started
+
+### Prerequisites
+
+*   Node.js (>= 18.0.0)
+*   npm or yarn
+*   A running instance of the Vaultify backend
+
+### Installation
+
+1.  Navigate into the frontend project directory:
+    ```bash
+    cd Vaultify-frontend
+    ```
+2.  Install dependencies:
+    ```bash
+    npm install
+    ```
+3.  Launch the local development server:
+    ```bash
+    npm run dev
+    ```
+    The app will open automatically at `http://localhost:5173`.
+
+### Build & Production Testing
+
+To build the client assets into optimized, static files:
+
+```bash
+# Compile client files
+npm run build
+
+# Preview production build locally
+npm run preview
+```
+
+---
+
+## 🌐 Production Deployment
+
+The frontend project is pre-configured for **Vercel** with client-side router rewrites.
+
+### Vercel Deployment Instructions
+
+1.  Install the Vercel CLI globally or use the Vercel Dashboard.
+2.  Link the repository to Vercel.
+3.  Set up the Environment Variables on Vercel's Dashboard (`VITE_API_URL`, Firebase credentials).
+4.  Run deployment:
+    ```bash
+    vercel --prod
+    ```
+
+The `vercel.json` file ensures that all routes redirect back to `index.html`, allowing React Router Dom to manage UI changes smoothly:
+
+```json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+```
+
+---
+
+## 🎨 UI Style System
+
+This project is built using the latest **Tailwind CSS v4** engine, which integrates seamlessly via the `@tailwindcss/vite` plugin. 
+
+Key design patterns used:
+*   **Tailwind v4 CSS-only Configuration:** Configuration is defined directly inside `src/index.css` using CSS variables (`@theme { ... }`) instead of a traditional `tailwind.config.js` file.
+*   **Inter font family** for premium typographic weight.
+*   **Glassmorphic styling** (`backdrop-blur`) for floating modals, menus, and sidebars.
+*   **Framer Motion transitions** (`easeInOut`, Spring animations) configured on page layout loads.

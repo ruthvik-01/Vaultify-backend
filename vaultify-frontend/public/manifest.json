@@ -1,0 +1,16 @@
+{
+  "short_name": "Vaultify",
+  "name": "Vaultify Secure Personal Digital Vault",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "48x48 72x72 96x96 128x128 256x256 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#FAF9F6",
+  "theme_color": "#4A5D4E",
+  "display": "standalone",
+  "orientation": "portrait"
+}

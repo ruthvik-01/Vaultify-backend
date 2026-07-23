@@ -1,0 +1,256 @@
+# 🛡️ Vaultify Backend API
+
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-blue.svg?style=flat-square&logo=node.js)](https://nodejs.org/)
+[![Framework](https://img.shields.io/badge/framework-Express_4-green.svg?style=flat-square&logo=express)](https://expressjs.com/)
+[![Database](https://img.shields.io/badge/database-MongoDB_Atlas-emerald.svg?style=flat-square&logo=mongodb)](https://www.mongodb.com/)
+[![Cloud Storage](https://img.shields.io/badge/storage-AWS_S3-orange.svg?style=flat-square&logo=amazons3)](https://aws.amazon.com/s3/)
+[![Auth](https://img.shields.io/badge/auth-Firebase_&_JWT-yellow.svg?style=flat-square&logo=firebase)](https://firebase.google.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+
+Welcome to the backend engine powering **Vaultify**, a high-performance, secure cloud storage and dedicated video streaming vault. This backend is architected using **Node.js, Express, MongoDB Atlas, and Amazon S3 (AWS SDK v3)**, featuring dual support for standard virtual machine environments (EC2, PM2) and serverless environments (AWS Lambda via Serverless Express).
+
+---
+
+## 🚀 Key Features
+
+*   **Dual Authentication Pipeline:** Seamless integration of JWT (JSON Web Tokens) with Firebase Admin SDK for hybrid authentication and OAuth security.
+*   **Hierarchical Folder Engine:** Fully recursive folder creation, moving, renaming, and nested deletion matching Amazon S3 prefixes.
+*   **Secure File Store (AWS S3):** Streamlined binary uploads via Multer, pre-signed temporary download URLs, and metadata synchronization with MongoDB.
+*   **Video Vault & Streaming Subsystem:**
+    *   Separate video folder structure (`VideoFolder`) and video details schema (`Video`).
+    *   Support for high-capacity multi-part video uploads with real-time status tracker (`Uploading`, `Active`, `Failed`).
+    *   Pre-signed byte-range streaming for seamless video player interaction.
+*   **Public Sharing & Custom Expiry:** Dynamic link generation with configurable time-based access permissions, public token routes, and auto-revocation.
+*   **Smart Development Fallback:** Detects database availability and spawns a local, in-memory MongoDB server instance (`mongodb-memory-server`) automatically if Atlas is offline.
+*   **Enterprise-Grade Security:** Equipped with Helmet (secure headers), CORS configs, Morgan HTTP traffic tracking, Winston logging, and Express-rate-limiting.
+
+---
+
+## 🏗️ Architecture & Flow
+
+```mermaid
+graph TD
+    Client[React Frontend] -->|REST APIs + Auth Header| Server[Express Server / AWS Lambda]
+    Server -->|Auth Verification| Firebase[Firebase Admin SDK]
+    Server -->|Metadata Sync| MongoDB[(MongoDB Atlas / In-Memory)]
+    Server -->|Pre-signed URLs / Multi-part Uploads| AWS_S3[(Amazon S3 Bucket)]
+    Server -->|Structured Logs| Winston[Winston Logger]
+```
+
+---
+
+## 📂 Project Directory Structure
+
+```text
+Vaultify-backend/
+├── src/
+│   ├── config/             # Connection managers (MongoDB, Firebase Admin, S3 Client, Logger)
+│   ├── controllers/        # Business logic controllers (Auth, Files, Folders, Videos, Public shares)
+│   ├── middleware/         # Security guards, JWT validation, rate limiters, global error interceptors
+│   ├── models/             # Mongoose schemas (User, File, Folder, Video, VideoFolder, Share, ActivityLog)
+│   ├── routes/             # Router endpoints (Auth, Folders, Files, Share, Videos)
+│   ├── services/           # External integration services
+│   ├── utils/              # Custom exceptions, helpers, validation schemas
+│   ├── validations/        # Joi schema models for input sanitization
+│   ├── app.js              # Express app definitions and middle-tier chain
+│   └── server.js           # Server initializer (used in EC2/Local dev)
+├── lambda.js               # AWS Lambda serverless express entry point
+├── deployment.md           # Raw deployment checklists
+├── API_DOCUMENTATION.md    # Raw API guides
+├── .env.example            # Environment template configuration
+└── package.json            # Scripts & dependencies definition
+```
+
+---
+
+## ⚙️ Environment Configuration
+
+Create a `.env` file in the root directory based on `.env.example`:
+
+```env
+# Server Runtime
+NODE_ENV=development
+PORT=5000
+HOST=0.0.0.0
+
+# Database
+# Note: Set to 'in-memory' to force local MongoDB Memory Server
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-url>/vaultify?retryWrites=true&w=majority
+
+# Security & JWT Tokens
+JWT_SECRET=replace-with-a-long-random-secret-key-32-chars
+JWT_EXPIRES_IN=7d
+
+# AWS Configs
+AWS_REGION=eu-north-1
+AWS_S3_BUCKET_NAME=gd-miniproject
+# Note: For local development only. On AWS instances, use IAM Roles.
+# AWS_ACCESS_KEY_ID=your-aws-access-key-id
+# AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+
+# Firebase Integration
+# Optional: If omitted, Admin SDK falls back to Application Default Credentials (ADC)
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@your-project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# CORS Integration
+CORS_ORIGIN=http://localhost:5173
+```
+
+---
+
+## 🛠️ Getting Started
+
+### Prerequisites
+
+*   Node.js (>= 18.0.0)
+*   MongoDB Atlas account (or use local fallback)
+*   AWS S3 Bucket with appropriate permissions
+
+### Installation & Run
+
+1.  **Clone the project** and navigate to the backend folder.
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+3.  **Run in Development Mode** (starts Nodemon hot-reloading):
+    ```bash
+    npm run dev
+    ```
+4.  **Run in Production Mode**:
+    ```bash
+    npm start
+    ```
+
+---
+
+## 🛜 Core API Endpoints
+
+All protected endpoints require passing a valid JWT token via headers: `Authorization: Bearer <jwt-token>`
+
+### 🔑 Authentication (`/api/auth`)
+| Method | Endpoint | Protection | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/register` | Public | Create a user profile with Email/Password |
+| **POST** | `/login` | Public | Authenticate user and receive JWT bearer token |
+| **POST** | `/logout` | Protected | Invalidate session logs |
+| **GET** | `/profile` | Protected | Fetch current user details & system usage status |
+| **PUT** | `/profile` | Protected | Update username or avatar URL |
+| **PUT** | `/change-password` | Protected | Update password |
+
+### 📁 Folders (`/api/folders`)
+| Method | Endpoint | Protection | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/` | Protected | Create new folders (supports nested parent folders) |
+| **GET** | `/` | Protected | Fetch folders matching optional query `parent_folder_id` |
+| **PUT** | `/:id` | Protected | Rename folder |
+| **DELETE**| `/:id` | Protected | Cascade-delete folder, subfolders, and AWS S3 files |
+
+### 📄 Files (`/api/files`)
+| Method | Endpoint | Protection | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/upload` | Protected | Multipart upload to S3; links file metadata to folders |
+| **GET** | `/` | Protected | List user files; supports query filters (`folder_id`, `is_favorite`) |
+| **GET** | `/:id` | Protected | Retrieve file details |
+| **PUT** | `/:id` | Protected | Rename document filename |
+| **DELETE**| `/:id` | Protected | Delete file from database and purge from Amazon S3 |
+| **POST** | `/move` | Protected | Relocate file structure between folders |
+| **POST** | `/favorite` | Protected | Mark/unmark files as starred |
+| **GET** | `/download/:id` | Protected | Generate unique AWS S3 pre-signed secure download URL |
+
+### 🎬 Video Vault & Streams (`/api/videos`)
+| Method | Endpoint | Protection | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/upload/init` | Protected | Initialize multipart video upload |
+| **POST** | `/upload/part` | Protected | Upload individual video chunks |
+| **POST** | `/upload/complete` | Protected | Assemble video files in S3 and activate status |
+| **GET** | `/` | Protected | Fetch video folders and active video records |
+| **GET** | `/stream/:id` | Protected | Custom byte-range stream route with S3 streaming |
+
+### 🔗 Public Sharing (`/api/share` & Root Share)
+| Method | Endpoint | Protection | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/api/share` | Protected | Generate a secure, expiring share link |
+| **GET** | `/api/share/:token` | Public | Retrieve shared metadata and pre-signed download token |
+| **DELETE**| `/api/share/:id` | Protected | Revoke active shared link |
+| **GET** | `/share/:token/stream` | Public | Stream public shared videos with no authentication |
+| **GET** | `/v/:code` | Public | Short-URL link resolver for shared content |
+
+---
+
+## 🌐 Production Deployment
+
+### 1. Serverless Mode (AWS Lambda)
+
+This backend is designed with Serverless Express (`@codegenie/serverless-express`), permitting standard Lambda triggers:
+
+*   Configure AWS API Gateway as a proxy target routing to `lambda.handler` inside `lambda.js`.
+*   Connection pooling is configured inside `src/config/db.js` using global reference triggers.
+
+### 2. Traditional Machine Mode (EC2 / VPS)
+
+For a persistent virtual machine, run PM2 to handle lifecycle events:
+
+```bash
+# Global PM2 Setup
+npm install -g pm2
+pm2 start src/server.js --name vaultify-backend
+pm2 save
+pm2 startup
+```
+
+### 3. Nginx Reverse Proxy Setup
+
+Set up standard port forwarding (Port 80/443 to Backend Port 5000):
+
+```nginx
+server {
+    listen 80;
+    server_name api.vaultify.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### 4. AWS S3 IAM Policy Recommendation
+
+For applications hosted on EC2 instances, attach an IAM Role instead of setting security keys. Minimum required S3 policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::gd-miniproject",
+        "arn:aws:s3:::gd-miniproject/*"
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## 🔒 Security Practices
+
+*   **Helmet.js Integration:** Automatically sets standard HTTP security headers to protect against cross-site scripting (XSS) and clickjacking.
+*   **Express Rate Limiter:** Applied on all endpoints under `/api` to prevent brute-force attacks and DDoS risks.
+*   **Joi Input Validation:** Sanitizes dynamic bodies and parameters before resolving controller endpoints.
+*   **CORS Configurations:** Securely locked credentials config with dynamic validation capability.

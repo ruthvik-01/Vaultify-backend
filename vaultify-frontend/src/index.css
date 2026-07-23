@@ -1,0 +1,226 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Lora", Georgia, serif;
+  --font-sans: "Outfit", system-ui, -apple-system, sans-serif;
+  
+  --color-brand-olive: #4A5D4E;
+  --color-brand-olive-dark: #37463B;
+  --color-brand-olive-light: #5A715F;
+  --color-brand-sage: #A3B19B;
+  --color-brand-sage-light: #D5DDD1;
+  --color-brand-cream: #FAF9F6;
+  --color-brand-cream-dark: #F3F1EC;
+  --color-brand-sand: #E3E1DC;
+  --color-brand-tan: #D8C3A5;
+  --color-brand-charcoal: #1F2320;
+}
+
+/* Custom scrollbars for a premium SaaS look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-brand-sage);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-olive);
+}
+
+/* Base style resets and configuration */
+@layer base {
+  body {
+    background-color: var(--color-brand-cream);
+    color: var(--color-brand-charcoal);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-serif);
+    color: var(--color-brand-charcoal);
+  }
+}
+
+/* Reset template specific styles */
+#root {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  text-align: left !important;
+  border-inline: none !important;
+  min-height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+}
+
+/* Custom glassmorphism details */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(227, 225, 220, 0.5);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   VAULTIFY CUSTOMIZATION SYSTEM variables and overrides
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Dynamic Accent Colors & Themes (Harmonized brand palettes) */
+:root[data-accent-color="green"] {
+  --color-brand-olive: #4A5D4E;
+  --color-brand-olive-dark: #37463B;
+  --color-brand-olive-light: #5A715F;
+  --color-brand-sage: #A3B19B;
+  --color-brand-sage-light: #D5DDD1;
+}
+:root[data-accent-color="blue"] {
+  --color-brand-olive: #2563EB;
+  --color-brand-olive-dark: #1D4ED8;
+  --color-brand-olive-light: #3B82F6;
+  --color-brand-sage: #93C5FD;
+  --color-brand-sage-light: #DBEAFE;
+}
+:root[data-accent-color="purple"] {
+  --color-brand-olive: #7C3AED;
+  --color-brand-olive-dark: #6D28D9;
+  --color-brand-olive-light: #8B5CF6;
+  --color-brand-sage: #C7D2FE;
+  --color-brand-sage-light: #E0E7FF;
+}
+:root[data-accent-color="orange"] {
+  --color-brand-olive: #EA580C;
+  --color-brand-olive-dark: #C2410C;
+  --color-brand-olive-light: #F97316;
+  --color-brand-sage: #FED7AA;
+  --color-brand-sage-light: #FFEDD5;
+}
+:root[data-accent-color="red"] {
+  --color-brand-olive: #DC2626;
+  --color-brand-olive-dark: #B91C1C;
+  --color-brand-olive-light: #EF4444;
+  --color-brand-sage: #FCA5A5;
+  --color-brand-sage-light: #FEE2E2;
+}
+
+/* Dynamic Sidebar Colors */
+:root[data-sidebar-color="sage"] aside {
+  background-color: #37463b !important;
+  color: #faf9f6 !important;
+  border-right-color: rgba(255, 255, 255, 0.1) !important;
+}
+:root[data-sidebar-color="sage"] aside span, 
+:root[data-sidebar-color="sage"] aside h3,
+:root[data-sidebar-color="sage"] aside span.truncate,
+:root[data-sidebar-color="sage"] aside h4 {
+  color: #faf9f6 !important;
+}
+:root[data-sidebar-color="sage"] aside a:not(.bg-brand-olive) {
+  color: #d5ddd1 !important;
+}
+:root[data-sidebar-color="sage"] aside a:not(.bg-brand-olive):hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+:root[data-sidebar-color="charcoal"] aside {
+  background-color: #1f2320 !important;
+  color: #faf9f6 !important;
+  border-right-color: rgba(255, 255, 255, 0.1) !important;
+}
+:root[data-sidebar-color="charcoal"] aside span, 
+:root[data-sidebar-color="charcoal"] aside h3,
+:root[data-sidebar-color="charcoal"] aside span.truncate,
+:root[data-sidebar-color="charcoal"] aside h4 {
+  color: #faf9f6 !important;
+}
+:root[data-sidebar-color="charcoal"] aside a:not(.bg-brand-olive) {
+  color: #e3e1dc !important;
+}
+:root[data-sidebar-color="charcoal"] aside a:not(.bg-brand-olive):hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+:root[data-sidebar-color="light"] aside {
+  background-color: #ffffff !important;
+  border-right-color: #e3e1dc !important;
+}
+
+/* Dynamic Font Sizes */
+:root[data-font-size="small"] {
+  font-size: 14px;
+}
+:root[data-font-size="medium"] {
+  font-size: 16px;
+}
+:root[data-font-size="large"] {
+  font-size: 18px;
+}
+
+/* Custom Dark Mode implementations */
+.dark body {
+  background-color: #121412 !important;
+  color: #e3e1dc !important;
+}
+.dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+  color: #ffffff !important;
+}
+.dark .bg-white {
+  background-color: #181c19 !important;
+  border-color: #2b322e !important;
+}
+.dark .border-brand-sand, 
+.dark .border-brand-sand\/80, 
+.dark .border-brand-sand\/60, 
+.dark .border-brand-sand\/40, 
+.dark .border-brand-sand\/50, 
+.dark .border-brand-sand\/70 {
+  border-color: #2b322e !important;
+}
+.dark .bg-brand-cream {
+  background-color: #1c221e !important;
+}
+.dark .bg-brand-cream-dark {
+  background-color: #151916 !important;
+}
+.dark .text-brand-charcoal, .dark text-brand-charcoal {
+  color: #faf9f6 !important;
+}
+.dark .text-gray-500 {
+  color: #a3b19b !important;
+}
+.dark .text-gray-600 {
+  color: #cbd5e1 !important;
+}
+.dark input, .dark textarea, .dark select {
+  background-color: #1c221e !important;
+  border-color: #2b322e !important;
+  color: #ffffff !important;
+}
+.dark tr:hover {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+@keyframes toast-enter {
+  from {
+    transform: translate(-50%, -20px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
