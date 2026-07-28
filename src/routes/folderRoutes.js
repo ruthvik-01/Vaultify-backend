@@ -6,6 +6,7 @@ const {
   getFolders,
   updateFolder,
   deleteFolder,
+  restoreFolder,
   getOrCreateWorkFolder
 } = require('../controllers/folderController');
 
@@ -21,5 +22,6 @@ router.get('/', getFolders);
 router.get('/work', getOrCreateWorkFolder);
 router.put('/:id', validate(updateFolderSchema), updateFolder);
 router.delete('/:id', deleteFolder);
+router.post('/restore/:id', restoreFolder);
 
 module.exports = router;

@@ -65,7 +65,12 @@ const getFolders = async (req, res, next) => {
     const userId = req.user.id;
     const { parent_folder_id } = req.query;
 
-    const query = { user_id: userId };
+    const query = {
+      user_id: userId,
+      is_deleted: { $ne: true },
+      isDeleted: { $ne: true },
+      inTrash: { $ne: true }
+    };
 
     if (parent_folder_id !== undefined) {
       if (parent_folder_id === 'null' || parent_folder_id === '') {
@@ -172,42 +177,91 @@ const deleteFolder = async (req, res, next) => {
     // Retrieve all folder IDs in hierarchy
     const folderIds = await getDescendantFolderIds(id, userId);
 
-    // Retrieve S3 keys of all files in this folder and its subfolders recursively
-    const files = await File.find({ folder_id: { $in: folderIds } });
+    if (req.query.permanent === 'true') {
+      const files = await File.find({ folder_id: { $in: folderIds } });
+      const s3DeletePromises = files.map((file) =>
+        deleteFile(file.s3_key).catch((err) => {
+          logger.error(`Deferred S3 purge failure for key: ${file.s3_key}. Error: ${err.message}`);
+        })
+      );
+      await Promise.all(s3DeletePromises);
 
-    // Delete files from S3 concurrently
-    const s3DeletePromises = files.map((file) =>
-      deleteFile(file.s3_key).catch((err) => {
-        // Log S3 deletion failures but do not block the DB deletion flow
-        logger.error(`Deferred S3 purge failure for key: ${file.s3_key}. Error: ${err.message}`);
-      })
-    );
-    await Promise.all(s3DeletePromises);
+      await File.deleteMany({ folder_id: { $in: folderIds } });
 
-    // Delete Files in DB
-    await File.deleteMany({ folder_id: { $in: folderIds } });
-
-    // Also cascade-delete any Video documents in these folders (cross-collection cleanup)
-    const Video = require('../models/Video');
-    const videoService = require('../services/videoService');
-    const videosInFolders = await Video.find({ folderId: { $in: folderIds } });
-    for (const video of videosInFolders) {
-      try {
-        await videoService.deleteVideo(video.ownerId, video._id);
-      } catch (videoErr) {
-        logger.error(`Failed to delete video ${video._id} during folder delete: ${videoErr.message}`);
+      const Video = require('../models/Video');
+      const videoService = require('../services/videoService');
+      const videosInFolders = await Video.find({ folderId: { $in: folderIds } });
+      for (const video of videosInFolders) {
+        try {
+          await videoService.deleteVideo(video.ownerId, video._id);
+        } catch (videoErr) {
+          logger.error(`Failed to delete video ${video._id} during folder delete: ${videoErr.message}`);
+        }
       }
+
+      await Folder.deleteMany({ _id: { $in: folderIds } });
+      await logActivity(userId, 'DELETE_FOLDER', 'Folder', `Permanently deleted folder "${folder.folder_name}"`, { folderId: id, folderName: folder.folder_name, itemType: 'Folder' }, req.ip);
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Folder and all subcontents permanently deleted.'
+      });
     }
 
-    // Delete parent folder and its subfolders from DB
-    await Folder.deleteMany({ _id: { $in: folderIds } });
+    // Soft delete: Mark all subfolders and subfiles as deleted without deleting MongoDB docs or S3 objects
+    const now = new Date();
+    await File.updateMany(
+      { folder_id: { $in: folderIds } },
+      { $set: { is_deleted: true, isDeleted: true, inTrash: true, deleted_at: now, deletedAt: now } }
+    );
+    await Folder.updateMany(
+      { _id: { $in: folderIds } },
+      { $set: { is_deleted: true, isDeleted: true, inTrash: true, deleted_at: now, deletedAt: now } }
+    );
 
-    // Log folder deletion audit log
-    await logActivity(userId, 'DELETE_FOLDER', 'Folder', `Deleted folder "${folder.folder_name}"`, { folderId: id, folderName: folder.folder_name, itemType: 'Folder' }, req.ip);
+    await logActivity(userId, 'DELETE_FOLDER', 'Folder', `Moved folder "${folder.folder_name}" to Trash Bin`, { folderId: id, folderName: folder.folder_name, itemType: 'Folder' }, req.ip);
 
     res.status(200).json({
       status: 'success',
-      message: 'Folder and all subcontents deleted successfully.'
+      message: 'Folder and contents moved to Trash Bin.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Restore a soft-deleted folder recursively
+ */
+const restoreFolder = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const folder = await Folder.findById(id);
+    if (!folder) {
+      return next(new NotFoundError('Folder not found.'));
+    }
+    if (folder.user_id.toString() !== userId.toString()) {
+      return next(new ForbiddenError('Access Denied: You do not own this folder.'));
+    }
+
+    const folderIds = await getDescendantFolderIds(id, userId);
+
+    await File.updateMany(
+      { folder_id: { $in: folderIds } },
+      { $set: { is_deleted: false, isDeleted: false, inTrash: false, deleted_at: null, deletedAt: null } }
+    );
+    await Folder.updateMany(
+      { _id: { $in: folderIds } },
+      { $set: { is_deleted: false, isDeleted: false, inTrash: false, deleted_at: null, deletedAt: null } }
+    );
+
+    await logActivity(userId, 'RESTORE_FOLDER', 'Folder', `Restored folder "${folder.folder_name}"`, { folderId: id, folderName: folder.folder_name, itemType: 'Folder' }, req.ip);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Folder and contents restored successfully.'
     });
   } catch (error) {
     next(error);
@@ -258,5 +312,6 @@ module.exports = {
   getFolders,
   updateFolder,
   deleteFolder,
+  restoreFolder,
   getOrCreateWorkFolder
 };

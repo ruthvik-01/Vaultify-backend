@@ -214,9 +214,12 @@ const uploadFileController = async (req, res, next) => {
 
 const getFiles = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const { folder_id, is_favorite } = req.query;
-    const query = { user_id: userId };
+    const query = {
+      user_id: userId,
+      is_deleted: { $ne: true },
+      isDeleted: { $ne: true },
+      inTrash: { $ne: true }
+    };
 
     if (folder_id !== undefined) {
       query.folder_id = folder_id === 'null' || folder_id === '' ? null : folder_id;
@@ -280,15 +283,60 @@ const deleteFileController = async (req, res, next) => {
   try {
     const file = await findOwnedFile(req.params.id, req.user.id);
 
-    await deleteS3File(file.s3_key);
-    await SharedLink.deleteMany({ file_id: file.id });
-    await File.findByIdAndDelete(file.id);
+    if (req.query.permanent === 'true') {
+      await deleteS3File(file.s3_key);
+      await SharedLink.deleteMany({ file_id: file.id });
+      await File.findByIdAndDelete(file.id);
+
+      await logActivity(req.user.id, 'Permanent Delete', { fileId: file.id, fileName: file.file_name }, req.ip);
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'File permanently deleted.'
+      });
+    }
+
+    const now = new Date();
+    file.is_deleted = true;
+    file.isDeleted = true;
+    file.inTrash = true;
+    file.deleted_at = now;
+    file.deletedAt = now;
+    await file.save();
 
     await logActivity(req.user.id, 'Delete', { fileId: file.id, fileName: file.file_name }, req.ip);
 
     res.status(200).json({
       status: 'success',
-      message: 'File metadata deleted successfully.'
+      message: 'File moved to Trash Bin successfully.',
+      data: {
+        file: serializeFile(file)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const restoreFileController = async (req, res, next) => {
+  try {
+    const file = await findOwnedFile(req.params.id, req.user.id);
+
+    file.is_deleted = false;
+    file.isDeleted = false;
+    file.inTrash = false;
+    file.deleted_at = null;
+    file.deletedAt = null;
+    await file.save();
+
+    await logActivity(req.user.id, 'Restore', { fileId: file.id, fileName: file.file_name }, req.ip);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'File restored successfully.',
+      data: {
+        file: serializeFile(file)
+      }
     });
   } catch (error) {
     next(error);
@@ -981,6 +1029,7 @@ module.exports = {
   getFile,
   updateFile,
   deleteFile: deleteFileController,
+  restoreFile: restoreFileController,
   moveFile,
   favoriteFile,
   downloadFile,

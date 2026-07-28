@@ -11,8 +11,12 @@ const fileSchema = new mongoose.Schema({
   is_favorite: { type: Boolean, default: false },
   is_work_submission: { type: Boolean, default: false },
   uploadBatchId: { type: String, default: null },
-  relative_path: { type: String, default: null },
-  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null }
+  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null },
+  is_deleted: { type: Boolean, default: false },
+  isDeleted: { type: Boolean, default: false },
+  inTrash: { type: Boolean, default: false },
+  deleted_at: { type: Date, default: null },
+  deletedAt: { type: Date, default: null }
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });

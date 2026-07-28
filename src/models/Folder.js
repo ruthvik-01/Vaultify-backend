@@ -6,7 +6,12 @@ const folderSchema = new mongoose.Schema({
   parent_folder_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Folder', default: null },
   folder_type: { type: String, enum: ['normal', 'work'], default: 'normal' },
   uploadBatchId: { type: String, default: null },
-  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null }
+  upload_group_id: { type: mongoose.Schema.Types.ObjectId, ref: 'UploadGroup', default: null },
+  is_deleted: { type: Boolean, default: false },
+  isDeleted: { type: Boolean, default: false },
+  inTrash: { type: Boolean, default: false },
+  deleted_at: { type: Date, default: null },
+  deletedAt: { type: Date, default: null }
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
