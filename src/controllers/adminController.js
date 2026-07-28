@@ -1288,85 +1288,6 @@ exports.getUploads = async (req, res) => {
           ]
         }
       },
-      {
-        $lookup: {
-          from: 'uploadgroups',
-          localField: 'upload_group_id',
-          foreignField: '_id',
-          as: 'uploadGroup'
-        }
-      },
-      { $unwind: { path: '$uploadGroup', preserveNullAndEmptyArrays: true } },
-      {
-        $group: {
-          _id: {
-            $cond: {
-              if: { $and: [{ $ne: ['$upload_group_id', null] }, { $ne: ['$upload_group_id', ''] }] },
-              then: '$upload_group_id',
-              else: { $toObjectId: '$id' }
-            }
-          },
-          isGroup: {
-            $first: {
-              $cond: {
-                if: { $and: [{ $ne: ['$upload_group_id', null] }, { $ne: ['$upload_group_id', ''] }] },
-                then: true,
-                else: false
-              }
-            }
-          },
-          groupTitle: { $first: '$uploadGroup.title' },
-          fileCount: { $sum: 1 },
-          size: { $sum: '$size' },
-          uploadDate: { $max: '$uploadDate' },
-          student: { $first: '$student' },
-          studentEmail: { $first: '$studentEmail' },
-          team: { $first: '$team' },
-          folder: { $first: '$folder' },
-          fileName: { $first: '$fileName' },
-          fileType: { $first: '$fileType' },
-          mimeType: { $first: '$mimeType' }
-        }
-      },
-      {
-        $project: {
-          id: { $toString: '$_id' },
-          student: 1,
-          studentEmail: 1,
-          team: 1,
-          folder: {
-            $cond: {
-              if: '$isGroup',
-              then: 'Upload Group',
-              else: '$folder'
-            }
-          },
-          fileName: {
-            $cond: {
-              if: '$isGroup',
-              then: {
-                $concat: [
-                  { $ifNull: ['$groupTitle', 'Unnamed Collection'] },
-                  ' (',
-                  { $toString: '$fileCount' },
-                  { $cond: { if: { $eq: ['$fileCount', 1] }, then: ' file)', else: ' files)' } }
-                ]
-              },
-              else: '$fileName'
-            }
-          },
-          fileType: {
-            $cond: {
-              if: '$isGroup',
-              then: 'group',
-              else: '$fileType'
-            }
-          },
-          mimeType: 1,
-          size: 1,
-          uploadDate: 1
-        }
-      },
       { $match: matchStage },
       { $sort: sortStage },
       {
@@ -1383,10 +1304,14 @@ exports.getUploads = async (req, res) => {
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
 
     const uploads = rawUploads.map((u) => {
-      const detected = u.fileType === 'group' ? 'group' : detectFileType(u.mimeType, u.fileName);
+      const detected = detectFileType(u.mimeType, u.fileName);
+      const extParts = (u.fileName || '').split('.');
+      const ext = extParts.length > 1 ? extParts.pop().toLowerCase() : (detected || 'file');
       return {
         ...u,
-        fileType: detected.toLowerCase()
+        fileExtension: ext,
+        fileType: detected.toLowerCase(),
+        uploadStatus: u.uploadStatus || 'Active'
       };
     });
 
