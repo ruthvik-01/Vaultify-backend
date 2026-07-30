@@ -617,6 +617,13 @@ const getSharedFolderFile = async (req, res, next) => {
     const { token, fileId } = req.params;
     const disposition = req.query.disposition || 'attachment';
 
+    const VideoShare = require('../models/VideoShare');
+    const Video = require('../models/Video');
+    const VideoFolder = require('../models/VideoFolder');
+    const s3Service = require('../services/s3Service');
+
+    console.log(`[SharedFolderFile Debug] Token: ${token} | Child File ID: ${fileId} | Disposition: ${disposition}`);
+
     // 1. Try SharedLink first
     const sharedLink = await SharedLink.findOne({ token }).populate('folder_id');
     if (sharedLink && sharedLink.folder_id) {
@@ -630,7 +637,12 @@ const getSharedFolderFile = async (req, res, next) => {
         let currentParentIds = [rootId.toString()];
         while (currentParentIds.length > 0) {
           const children = await Folder.find({ parent_folder_id: { $in: currentParentIds } }).lean();
-          currentParentIds = children.map(c => c._id.toString());
+          const vChildren = await VideoFolder.find({ parentFolder: { $in: currentParentIds } }).lean();
+          const combinedChildren = [
+            ...children.map(c => c._id.toString()),
+            ...vChildren.map(c => c._id.toString())
+          ];
+          currentParentIds = combinedChildren;
           ids = ids.concat(currentParentIds);
         }
         return ids;
@@ -640,7 +652,7 @@ const getSharedFolderFile = async (req, res, next) => {
 
       let file = await File.findOne({ _id: fileId, folder_id: { $in: allowedFolderIds } });
       let isVideo = false;
-      let s3Key, originalName, mimeType, size, ownerId;
+      let s3Key, originalName, mimeType, size, ownerId, foundModel;
 
       if (file) {
         s3Key = file.s3_key;
@@ -648,10 +660,11 @@ const getSharedFolderFile = async (req, res, next) => {
         mimeType = file.file_type;
         size = file.file_size;
         ownerId = file.user_id;
+        foundModel = 'File';
       } else {
-        const Video = require('../models/Video');
         const video = await Video.findOne({ _id: fileId, folderId: { $in: allowedFolderIds }, status: 'Active' });
         if (!video) {
+          console.error(`[SharedFolderFile Debug] File/Video ID ${fileId} not found in allowed folders: ${allowedFolderIds}`);
           return next(new NotFoundError('File not found in this shared folder.'));
         }
         s3Key = video.s3Key;
@@ -660,15 +673,17 @@ const getSharedFolderFile = async (req, res, next) => {
         size = video.size;
         ownerId = video.ownerId;
         isVideo = true;
+        foundModel = 'Video';
       }
 
       let presignedUrl;
       if (isVideo) {
-        const s3Service = require('../services/s3Service');
         presignedUrl = await s3Service.getPreSignedDownloadUrl(s3Key, originalName, 600, disposition, mimeType);
       } else {
         presignedUrl = await getPreSignedDownloadUrl(s3Key, originalName, 600, disposition, mimeType);
       }
+
+      console.log(`[SharedFolderFile Debug] Shared Folder ID: ${sharedLink.folder_id._id} | Child File ID: ${fileId} | Storage Type: S3 | Model: ${foundModel} | S3 Key: ${s3Key} | Presigned URL: ${presignedUrl}`);
 
       await logActivity(ownerId, 'Download', { 
         fileId, 
@@ -688,10 +703,6 @@ const getSharedFolderFile = async (req, res, next) => {
     }
 
     // 2. Try VideoShare
-    const VideoShare = require('../models/VideoShare');
-    const Video = require('../models/Video');
-    const s3Service = require('../services/s3Service');
-
     const videoShare = await VideoShare.findOne({ token, isActive: true }).populate('folderId');
     if (videoShare && videoShare.folderId) {
       if (videoShare.expiresAt && new Date() > videoShare.expiresAt) {
@@ -704,7 +715,12 @@ const getSharedFolderFile = async (req, res, next) => {
         let currentParentIds = [rootId.toString()];
         while (currentParentIds.length > 0) {
           const children = await VideoFolder.find({ parentFolder: { $in: currentParentIds } }).lean();
-          currentParentIds = children.map(c => c._id.toString());
+          const regularChildren = await Folder.find({ parent_folder_id: { $in: currentParentIds } }).lean();
+          const combinedChildren = [
+            ...children.map(c => c._id.toString()),
+            ...regularChildren.map(c => c._id.toString())
+          ];
+          currentParentIds = combinedChildren;
           ids = ids.concat(currentParentIds);
         }
         return ids;
@@ -712,20 +728,42 @@ const getSharedFolderFile = async (req, res, next) => {
 
       const allowedVideoFolderIds = await getAllVideoDescendantIds(videoShare.folderId._id);
 
-      const video = await Video.findOne({ _id: fileId, folderId: { $in: allowedVideoFolderIds }, status: 'Active' });
-      if (!video) {
-        return next(new NotFoundError('Video not found in this shared folder.'));
+      let video = await Video.findOne({ _id: fileId, folderId: { $in: allowedVideoFolderIds }, status: 'Active' });
+      let s3Key, originalName, mimeType, size, ownerId, foundModel;
+
+      if (video) {
+        s3Key = video.s3Key;
+        originalName = video.originalName || video.filename;
+        mimeType = video.mimeType;
+        size = video.size;
+        ownerId = video.ownerId;
+        foundModel = 'Video';
+      } else {
+        const file = await File.findOne({ _id: fileId, folder_id: { $in: allowedVideoFolderIds } });
+        if (!file) {
+          console.error(`[SharedFolderFile Debug] File/Video ID ${fileId} not found in allowed video folders: ${allowedVideoFolderIds}`);
+          return next(new NotFoundError('Video or file not found in this shared folder.'));
+        }
+        s3Key = file.s3_key;
+        originalName = file.original_name;
+        mimeType = file.file_type;
+        size = file.file_size;
+        ownerId = file.user_id;
+        foundModel = 'File';
       }
 
-      const presignedUrl = await s3Service.getPreSignedDownloadUrl(video.s3Key, video.originalName || video.filename, 600, disposition, video.mimeType);
-      await logActivity(video.ownerId, 'Download', { videoId: video._id, viaShare: videoShare.id, status: 'public_video_folder' }, req.ip);
+      const presignedUrl = await s3Service.getPreSignedDownloadUrl(s3Key, originalName, 600, disposition, mimeType);
+
+      console.log(`[SharedFolderFile Debug] Shared Folder ID: ${videoShare.folderId._id} | Child File ID: ${fileId} | Storage Type: S3 | Model: ${foundModel} | S3 Key: ${s3Key} | Presigned URL: ${presignedUrl}`);
+
+      await logActivity(ownerId, 'Download', { videoId: fileId, viaShare: videoShare.id, status: 'public_video_folder' }, req.ip);
 
       return res.status(200).json({
         status: 'success',
         data: {
-          file_name: video.originalName || video.filename,
-          file_type: video.mimeType,
-          file_size: video.size,
+          file_name: originalName,
+          file_type: mimeType,
+          file_size: size,
           download_url: presignedUrl
         }
       });
